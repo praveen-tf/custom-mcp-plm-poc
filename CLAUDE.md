@@ -3,7 +3,7 @@
 ## Core Principles
 
 1. **ALWAYS PRIORITIZE READABILITY**: this is the MOST IMPORTANT PRINCIPLE and should be your absolute guiding north star, always prioritize readability even if it makes the code longer or causes some duplication. Humans need to be able to easily read and understand the code.
-2. **RESEARCH FIRST**: Always read/research first, understand context fully, scrape the official website, use Context Hub, use deepwiki mcp, etc., to make sure you really understand how APIs, packages, services, etc. work and save your findings in the project_docs/ folder. 
+2. **RESEARCH FIRST**: Always read/research first, understand context fully, scrape the official website, use Context Hub, use deepwiki mcp, etc., to make sure you really understand how APIs, packages, services, etc. work and save your findings in the project_docs/ folder.
 3. **FOLLOW EXISTING PATTERNS**: Don't invent new approaches
 4. **SURGICAL CHANGES**: Touch only what you must.
 5. **KISS**: Simplicity over complexity
