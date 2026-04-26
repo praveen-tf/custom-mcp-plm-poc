@@ -1,0 +1,18 @@
+{
+  "build": {
+    "dockerfile": "Dockerfile"
+  },
+  "customizations": {
+    "codespaces": {
+      "repositories": {
+        "jesse-miller-thoughtfully/*": {
+          "permissions": "write-all"
+        }
+      }
+    }
+  }
+}
+
+// to access repos where you are a collaborator but not an owner, in the terminal run:
+// `unset GITHUB_TOKEN` or `unset GH_TOKEN`
+// `gh auth login -h github.com -p https --web -s repo`
