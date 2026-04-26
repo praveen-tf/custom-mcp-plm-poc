@@ -1,0 +1,7 @@
+[user]
+    name = Jesse Miller
+    email = Jmiller@thoughtfully.com
+[core]
+    editor = code --wait
+[pull]
+    rebase = false
