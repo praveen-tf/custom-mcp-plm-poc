@@ -1,7 +1,7 @@
 # 🚨 Logging
-Uses [logfire](https://logfire.pydantic.dev/) for structured logging and tracing, with [OpenObserve](https://openobserve.ai/) as the self-hosted OTEL backend and frontend dashboard. 
+Uses [logfire](https://logfire.pydantic.dev/) for structured logging and tracing, with [OpenObserve](https://openobserve.ai/) as the self-hosted OTEL backend and frontend dashboard.
 
-Logs can alternatively be sent to Logfire's cloud service by providing a `LOGFIRE_TOKEN`. 
+Logs can alternatively be sent to Logfire's cloud service by providing a `LOGFIRE_TOKEN`.
 
 If neither OTEL_EXPORTER_OTLP_TRACES_ENDPOINT nor LOGFIRE_TOKEN is set, then logs will go to stdout and print normally in the console.
 

@@ -20,11 +20,103 @@ The `install.sh` script installs:
 - **Docker & Container Tools**: Docker, docker-compose
 - **CLI Tools**: GitHub CLI, ripgrep (rg), ngrok
 - **Package Managers**: uv (Python), prek (pre-commit runner)
-- **AI & API Tools**: Claude Code, Context Hub (chub), Firecrawl CLI
+- **AI & API Tools**: Claude Code, SpecStory CLI, Context Hub (chub), Firecrawl CLI
 - **Browser Automation**: Playwright CLI + Chromium headless shell
 - **Python Utilities**: ipython, jupyter, ruff, ipykernel
 
 It also sets up useful shell aliases for common commands (git, docker, uv shortcuts, etc.).
+
+## Core Development Workflow
+
+### 1. Start Claude with SpecStory
+
+`install.sh` installs the [SpecStory CLI](https://specstory.com/) and sets two aliases:
+
+```bash
+cc    # runs: specstory run claude
+ccc   # runs: specstory run claude -c "claude --dangerously-skip-permissions"
+```
+
+Always launch Claude via `cc` or `ccc` — SpecStory wraps Claude to automatically capture conversation history and link it to specs and commits.
+
+### 2. Create a Spec
+
+For any significant feature, bug fix, or refactor, generate a spec before writing code:
+
+```
+/create-spec
+# Describe: Add multi-language support to content export
+```
+
+This creates a markdown file in `specs/NNN-feature-name.md` with requirements, design decisions, affected files, reference docs, an implementation checklist, and acceptance criteria. Review and approve the spec before proceeding.
+
+### 3. Execute the Spec
+
+Once the spec is approved, implement it end-to-end:
+
+```
+/execute-spec specs/001-feature-name.md
+```
+
+Claude reads the spec, fetches referenced docs, completes all checklist tasks in order, and creates a commit and PR when done.
+
+### 4. Quality Checks
+
+Before committing, run all quality gates (from inside the project directory, **not** the dotfiles root):
+
+```bash
+# Confirm you're in the right repo
+git rev-parse --show-toplevel
+
+# Tests
+uv run pytest
+
+# Format
+uv run ruff format .
+
+# Lint and auto-fix
+uv run ruff check --fix .
+
+# Pre-commit hooks (config lives one level up in dotfiles root)
+uv run prek run --all-files --config ../.pre-commit-config.yaml
+```
+
+Hooks enforced by prek include: **ruff** (format + lint), **trailing-whitespace**, **end-of-file-fixer**, **check-yaml**, **detect-private-key**, and **mypy** (on pre-push).
+
+Never use `--no-verify`. Fix the issue, re-stage, and retry.
+
+### 5. Commit and PR
+
+**Never commit directly to `main`.** Always work on a feature branch:
+
+```bash
+# Create branch (include Jira ticket if known)
+git checkout -b feature/PROJ-123-short-description
+
+# Stage specific files (review git status first — never blindly git add .)
+git add <file>
+
+# Commit via the git-agent slash command
+/commit
+
+# Create a draft PR
+/create-pr
+```
+
+Commit messages follow conventional format: `<type>(<scope>): <subject> [PROJ-123]`
+Types: `feat`, `fix`, `docs`, `style`, `refactor`, `test`, `chore`
+
+See `.claude/skills/commits-prs/SKILL.md` for branch naming conventions and full workflow details.
+
+### 6. Automated PR Review with Codex
+
+Connect [Codex](https://codex.openai.com/) to your GitHub account and install it on all your repositories. In Codex settings, enable:
+
+> **"All your pull requests in a Codex enabled repository will be automatically reviewed."**
+
+Every PR you open will receive an automated review before human reviewers look at it.
+
+---
 
 ## Core Principles
 
@@ -76,7 +168,7 @@ your-project/
 
 ## Skills
 
-The repository includes 9 reusable skills in `.claude/skills/` — each provides a structured approach to a specific development task:
+The repository includes reusable skills in `.claude/skills/` — each provides a structured approach to a specific development task:
 
 ### 1. **readme-manager** — Lifecycle for README files
 Procedures for creating new READMEs and updating existing ones following a consistent structure (title, prerequisites, installation, usage, architecture, tech stack).
@@ -125,44 +217,17 @@ Six slash commands are available for common workflows:
 ### /commit
 Stage your changes and commit them following the project's git conventions. The git-agent will handle branching, quality checks, and commit message formatting.
 
-```bash
-# Before running:
-git status  # see what's changed
-git add .   # stage files
-
-# Then:
-/commit
-```
-
 ### /create-pr
 Create a pull request from your feature branch. The git-agent will format the PR title, write the description, and push the branch.
-
-```bash
-/create-pr
-```
 
 ### /create-readme
 Create a new README.md by analyzing the project structure, dependencies, and source code. Generates documentation following the standard README structure.
 
-```bash
-/create-readme
-```
-
 ### /update-readme
 Update an existing README to reflect recent changes. Provide a summary of what changed, and the readme-manager will update relevant sections.
 
-```bash
-/update-readme
-# Summary: Added new deployment workflow via deploy.py
-```
-
 ### /create-spec
 Write a specification for a new feature or refactoring. Creates a markdown spec in `specs/` with requirements, design decisions, affected files, reference documents, and an implementation checklist.
-
-```bash
-/create-spec
-# Feature: Add multi-language support to content export
-```
 
 ### /execute-spec
 Implement a spec end-to-end. Reads the spec, fetches referenced documentation, completes all checklist tasks in order, and creates a commit and PR when complete.
@@ -172,23 +237,6 @@ Implement a spec end-to-end. Reads the spec, fetches referenced documentation, c
 ```
 
 ## Key Workflows
-
-### Spec-Driven Development
-
-1. **Create a spec** — Use `/create-spec` to write a detailed specification in `specs/NNN-feature-name.md`
-2. **Review and approve** — Human reviews the spec and approves it
-3. **Execute the spec** — Use `/execute-spec` to implement all tasks
-4. **Verify** — Spec execution runs all acceptance criteria and creates a PR
-5. **Merge** — Review and merge the PR
-
-Specs live in the `specs/` folder with incrementing numbers (001, 002, etc.). Each spec includes:
-- Overview and requirements
-- Design decisions and affected files
-- Reference documents to read before implementation
-- Implementation checklist with dependencies
-- Acceptance criteria for verification
-
-Read `.claude/skills/create-spec/SKILL.md` for the full spec template and guidelines.
 
 ### Project Docs Library
 
@@ -202,39 +250,6 @@ Maintain `project_docs/` inside each project (`<project>/src/project_docs/`) as 
 Docs follow a standard format (source URL, retrieval date, overview, setup, key concepts, usage patterns, configuration, error handling, gotchas).
 
 Read `.claude/skills/project-docs/SKILL.md` for the full standard.
-
-### Git Workflow
-
-1. **Create a feature branch** — Never commit directly to `main`
-   ```bash
-   git checkout -b feature/PROJ-123-short-description
-   ```
-
-2. **Make changes** — Code, test, iterate
-
-3. **Run quality checks** before committing:
-   ```bash
-   uv run pytest          # Run tests
-   uv run ruff format .   # Format code
-   uv run ruff check --fix .  # Lint and auto-fix
-   ```
-
-4. **Commit with conventional messages**:
-   ```bash
-   # Format: <type>(<scope>): <subject> [PROJ-123]
-   # Types: feat, fix, docs, style, refactor, test, chore
-
-   /commit
-   ```
-
-5. **Create a PR** and request review:
-   ```bash
-   /create-pr
-   ```
-
-6. **Merge when approved** — Use `gh pr merge --squash --delete-branch` or GitHub web UI
-
-Read `.claude/skills/commits-prs/SKILL.md` for the full workflow, branch naming conventions, and commit message standards.
 
 ## Agent Docs
 
@@ -274,23 +289,3 @@ The `.mcp.json` file configures Model Context Protocol (MCP) servers for enhance
 - **Excalidraw** — Create and edit diagrams collaboratively
 
 These integrations are available to Claude Code and provide specialized tools for research, documentation, and project management.
-
-## .pre-commit-config.yaml
-
-Pre-commit hooks run before each commit to enforce code quality:
-
-```bash
-# Install hooks
-uv run prek install
-
-# Run manually
-uv run prek run --all-files
-```
-
-Hooks include:
-- **ruff** — Format code and lint with auto-fix
-- **trailing whitespace** — Remove trailing spaces
-- **end-of-file-fixer** — Ensure files end with newline
-- **check-yaml** — Validate YAML syntax
-- **detect-private-key** — Prevent committing secrets
-- **mypy** — Type checking (runs on pre-push, not pre-commit)
