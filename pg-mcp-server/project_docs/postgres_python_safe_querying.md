@@ -205,12 +205,18 @@ bypass all checks — the MCP role must not be a superuser.
 read-only that does not prevent all writes to disk," but it stops all data/DDL mutation —
 sufficient here, on top of the SELECT-only role.)
 
-psycopg 3 — per-transaction (preferred; `read_only` setter is a method since 3.2):
+psycopg 3 — connection-level read-only. NOTE: `conn.transaction()` does **not** accept a
+`read_only` kwarg (its only params are `savepoint_name` and `force_rollback`). Set read-only
+on the connection with `await conn.set_read_only(True)` — ideally in the pool's `configure`
+callback so every pooled connection is read-only before it is handed out:
 
 ```python
-async with pool.connection() as conn:           # autocommit=True pool
-    async with conn.transaction(read_only=True):  # psycopg spelling: read_only
-        async with conn.cursor() as cur:
+async def configure(conn):          # AsyncConnectionPool(..., configure=configure)
+    await conn.set_read_only(True)  # every transaction on this connection is read-only
+
+async with pool.connection() as conn:   # autocommit=True pool, configured read-only
+    async with conn.transaction():
+        async with conn.cursor(row_factory=dict_row) as cur:
             await cur.execute(query, params)
             rows = await cur.fetchall()
 ```

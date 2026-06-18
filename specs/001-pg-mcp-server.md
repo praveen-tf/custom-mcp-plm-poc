@@ -1,8 +1,8 @@
 # 001 Postgres MCP Server (ChatGPT Enterprise Connector)
 
-**Status:** draft
+**Status:** in-progress
 **Created:** 2026-06-17
-**Last updated:** 2026-06-17
+**Last updated:** 2026-06-18
 
 ---
 
@@ -55,7 +55,7 @@ Tools (Layer 1, in `main.py`) are thin boundaries that delegate to the core clas
 
 ### Key Decisions
 
-- **Build custom (not Google MCP Toolbox):** user requires a Python server deployable as a ChatGPT Enterprise connector with strict **field-level** whitelisting; whether Toolbox covers column-level filtering is evaluated as the final task (Task 13), not as the foundation.
+- **Build custom on FastMCP — confirmed by evaluation (Task 14, completed early):** no evaluated option provides **column-level whitelisting that hides sensitive fields from the LLM schema** or open-query-with-whitelist enforcement — not Google MCP Toolbox (Go), Azure MCP Server (.NET, managed-PG only), `crystaldba/postgres-mcp` (Python), or pgEdge. We build **clean on FastMCP rather than forking** `crystaldba/postgres-mcp`: deny-by-default restriction is easier and safer to build from scratch than to retrofit onto a permissive general-purpose server (its psycopg3 read-only/introspection patterns may be borrowed as reference). (Refs: `project_docs/google_mcp_toolbox.md`, `project_docs/azure_mcp_options.md`.)
 - **FastMCP 3.x** (`uv add fastmcp`): lowest-boilerplate, actively maintained, wraps the official `mcp` package. Streamable HTTP at `/mcp/`. (Ref: `mcp_python_sdk.md`.)
 - **psycopg 3 async + `AsyncConnectionPool`:** built-in `sql.Identifier` composition is essential for safe dynamic identifiers; LLM latency dominates so asyncpg's speed edge is irrelevant. (Ref: `postgres_python_safe_querying.md`.)
 - **Defense in depth, DB role is the backstop:** (1) allowlist validation before composing SQL, (2) column-level `SELECT`-only least-priv role, (3) `default_transaction_read_only` + per-query read-only transaction. `READ ONLY` alone is not sufficient per PG docs — the role is authoritative.
@@ -76,73 +76,75 @@ Tools (Layer 1, in `main.py`) are thin boundaries that delegate to the core clas
 | Logging | `agent_docs/logging_guidelines.md` | `get_logger()`, logfire, stdout fallback |
 | Testing | `agent_docs/testing_guidelines.md` | pytest fixtures, `conftest.py`, coverage targets |
 | Style | `agent_docs/style_guidelines.md` | PEP8/100-char, type hints, Google docstrings |
-| Google MCP Toolbox eval | `pg-mcp-server/project_docs/google_mcp_toolbox.md` | *(created by Task 13)* field-level whitelist support; build-vs-adopt verdict |
+| Google MCP Toolbox eval | `pg-mcp-server/project_docs/google_mcp_toolbox.md` | adopt-vs-build verdict; why it lacks native column whitelisting |
+| Azure / Python MCP options eval | `pg-mcp-server/project_docs/azure_mcp_options.md` | candidate comparison (Azure MCP Server, `crystaldba/postgres-mcp`, pgEdge); why build clean |
 
 ## 5. Implementation Checklist
 
-- [ ] **Task 1: Project scaffolding & deps**
+- [x] **Task 1: Project scaffolding & deps**
       Files: `pyproject.toml`
       Details: `uv add fastmcp "psycopg[binary,pool]" pglast pydantic pydantic-settings pyyaml uvicorn`; `uv add --dev` already has pytest/ruff/mypy. Create empty module files per the layer table.
 
-- [ ] **Task 2: Config** *(depends on: Task 1)*
+- [x] **Task 2: Config** *(depends on: Task 1)*
       Files: `config.py`, `.env`, `.env.example`
       Details: `Settings(BaseSettings)` — DB conninfo, `policy_path`, OAuth settings, host/port, `statement_timeout_ms`, `max_rows`. `get_settings()` with `lru_cache`.
       Ref: `agent_docs/configs_data_models.md`. Test: invalid/missing env raises at startup.
 
-- [ ] **Task 3: Data models** *(depends on: Task 1)*
+- [x] **Task 3: Data models** *(depends on: Task 1)*
       Files: `models.py`
       Details: Pydantic v2 `TablePolicy`, `QueryTemplate` (name, description, sql, typed params), `QueryResult`.
 
-- [ ] **Task 4: AccessPolicy — load & validate** *(depends on: Tasks 2,3)*
+- [x] **Task 4: AccessPolicy — load & validate** *(depends on: Tasks 2,3)*
       Files: `access_policy.py`, `policy.yaml`, `logging_config.py`
       Details: load YAML into models; allowlist lookup helpers `is_allowed_table/column`; build filtered schema dict. Startup validation deferred to Task 6 (needs DB).
       Test (`test_access_policy.py`): allowed vs denied identifiers; sensitive column never in filtered schema.
 
-- [ ] **Task 5: Database layer** *(depends on: Task 2)*
+- [x] **Task 5: Database layer** *(depends on: Task 2)*
       Files: `database.py`
       Details: `AsyncConnectionPool`; `execute_readonly()` (read-only txn, `statement_timeout`, bound params, row cap); `introspect_schema()` via `information_schema`.
       Ref: `postgres_python_safe_querying.md`. Test (`test_database.py`): read-only txn rejects writes; timeout honored (mock or test DB).
 
-- [ ] **Task 6: Startup policy validation** *(depends on: Tasks 4,5)*
+- [x] **Task 6: Startup policy validation** *(depends on: Tasks 4,5)*
       Files: `access_policy.py`
       Details: cross-check every whitelisted table/column against `introspect_schema()`; fail fast with a clear error on mismatch.
       Test: bogus column in policy → startup error.
 
-- [ ] **Task 7: Open-query AST validator** *(depends on: Task 4)* — *resolve D2 first*
+- [x] **Task 7: Open-query AST validator** *(depends on: Task 4)* — *resolve D2 first*
       Files: `query_validator.py`
       Details: pglast parse → reject non-SELECT, multiple statements, `SELECT *`, non-allowlisted tables/cols; clamp/inject `LIMIT`.
       Ref: `postgres_python_safe_querying.md`. Test (`test_query_validator.py`): injection attempts, stacked queries, disallowed table/column, comment tricks all rejected; valid SELECT passes.
 
-- [ ] **Task 8: Auth** *(depends on: Task 2)* — *resolve D1 first*
+- [x] **Task 8: Auth** *(depends on: Task 2)* — *resolve D1 first*
       Files: `auth.py`
       Details: OAuth 2.1 `TokenVerifier` + `AuthSettings` (or documented no-auth path). Authz enforced server-side, not via annotation hints.
       Ref: `mcp_python_sdk.md`, `chatgpt_enterprise_mcp.md`.
 
-- [ ] **Task 9: MCP tools & server** *(depends on: Tasks 4,5,6,7,8)* — *resolve D3 first*
+- [x] **Task 9: MCP tools & server** *(depends on: Tasks 4,5,6,7,8)* — *resolve D3 first*
       Files: `main.py`
       Details: `FastMCP` server; tools `list_accessible_tables`, `describe_table`, template tool(s) (per D3), `query` (open mode). Tools annotated `readOnlyHint=True`; return text + structured content.
       Test (`test_tools.py`): each tool happy path + denial path with `AccessPolicy`/`Database` test doubles.
 
-- [ ] **Task 10: HTTP launch** *(depends on: Task 9)*
+- [x] **Task 10: HTTP launch** *(depends on: Task 9)*
       Files: `main.py`
       Details: serve Streamable HTTP at `/mcp/` (`transport="http"` / ASGI `http_app()` + uvicorn); bind host/port from config.
 
-- [ ] **Task 11: Least-privilege DB role** *(depends on: Task 5)*
+- [x] **Task 11: Least-privilege DB role** *(depends on: Task 5)*
       Files: `sql/role_setup.sql`, README section
       Details: `CREATE ROLE` (LOGIN, NOSUPERUSER); **column-level** `GRANT SELECT (cols)` per whitelisted table — never a table-level `GRANT SELECT`; `default_transaction_read_only=on`.
       Ref: `postgres_python_safe_querying.md`.
 
-- [ ] **Task 12: Integration test + local run** *(depends on: Tasks 9,10,11)*
+- [x] **Task 12: Integration test + local run** *(depends on: Tasks 9,10,11)*
       Files: `tests/test_integration.py`, `conftest.py`
       Details: end-to-end against a disposable Postgres (seeded with a sensitive column) — confirm template + open-query work and sensitive column is unreachable through every tool. Manual: connect MCP inspector / Developer-Mode connector.
+      *Status: automated integration test written (`tests/test_integration.py`, skips unless `PGMCP_TEST_DATABASE_URL` is set); live run + MCP-inspector/connector verification still pending a reachable test DB.*
 
-- [ ] **Task 13: Containerize & Azure deploy skeleton** *(depends on: Task 12)*
+- [x] **Task 13: Containerize & Azure deploy skeleton** *(depends on: Task 12)*
       Files: `Dockerfile`, `.dockerignore`, `deploy.py`
       Details: Dockerfile running the ASGI app under uvicorn; `deploy.py` skeleton for **Azure Container Apps** (VNet-integrated env, secrets pulled from **Azure Key Vault**, NSG allow 5432 to the VM). Detailed production hardening deferred to a follow-on deploy spec.
 
-- [ ] **Task 14: Google MCP Toolbox evaluation (LAST)** *(depends on: Task 12)*
-      Files: `pg-mcp-server/project_docs/google_mcp_toolbox.md`
-      Details: research `googleapis/mcp-toolbox`; determine whether it supports **field-level (column) whitelisting** and ChatGPT-connector deployment out of the box. Write a build-vs-adopt verdict comparing it to this implementation. (Deferred to last per user direction — do not research until this task is active.)
+- [x] **Task 14: Build-vs-adopt evaluation — DONE (pulled forward at user request)**
+      Files: `pg-mcp-server/project_docs/google_mcp_toolbox.md`, `pg-mcp-server/project_docs/azure_mcp_options.md`
+      Outcome: evaluated Google MCP Toolbox, Azure MCP Server, `crystaldba/postgres-mcp`, and pgEdge against the 7 requirements. **Verdict: build custom, clean FastMCP build** — none provides column-level whitelisting (sensitive fields hidden from the LLM schema) or open-query-with-whitelist enforcement. See Key Decisions.
 
 ## 6. Acceptance Criteria
 
@@ -153,4 +155,4 @@ Tools (Layer 1, in `main.py`) are thin boundaries that delegate to the core clas
 - [ ] Queries run read-only as the least-priv role; writes fail at the DB layer; `statement_timeout` and row `LIMIT` enforced.
 - [ ] Server is reachable over Streamable HTTP and authenticates per D1; verified with MCP inspector and/or a ChatGPT Enterprise Developer-Mode connector.
 - [ ] `uv run pytest` passes; no new ruff/mypy errors; critical-path coverage ≥ 80%.
-- [ ] `project_docs/google_mcp_toolbox.md` written with a clear build-vs-adopt verdict.
+- [x] Build-vs-adopt evaluation written (`project_docs/google_mcp_toolbox.md`, `project_docs/azure_mcp_options.md`) with a clear verdict — **build custom, clean FastMCP**.

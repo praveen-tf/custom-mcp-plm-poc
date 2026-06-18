@@ -1,0 +1,74 @@
+# ─────────────────────────────────────────────────────────────────────────────
+# Access policy for the Postgres MCP server.
+#
+# This file is the SINGLE SOURCE OF TRUTH for what ChatGPT can reach. Anything
+# not listed here is invisible to the model and rejected before hitting the DB.
+#
+# Global exclusion rules (NOT listed below, by design):
+#   - all `_airbyte_*` columns (internal Airbyte sync metadata)
+#   - all `jsonb` columns (nested structures; revisit individually later)
+# Source DB: Thoughtfully live Postgres (read-only), schema `centric_8_plm`
+#            (Centric 8 PLM, Airbyte-synced). See project_docs/db_schema_centric_8_plm.md
+# ─────────────────────────────────────────────────────────────────────────────
+
+schema: centric_8_plm
+
+tables:
+  category1s:
+    columns: [id, code, node_name, description, crew, crew_type,
+              cnt_style, cnt_colorway, parent_season, modified_by, _modified_at]
+
+  category2s:
+    columns: [id, code, node_name, description, category_1, crew, crew_type,
+              cnt_style, cnt_colorway, parent_season, modified_by, _modified_at]
+
+  collections:
+    columns: [id, wbs, code, node_name, description, category_1, category_2,
+              crew, crew_type, cnt_style, cnt_colorway, parent_season,
+              modified_by, _modified_at]
+
+  seasons:
+    columns: [id, code, node_name, description, status, crew, crew_type,
+              cnt_style, cnt_colorway, modified_by, _modified_at]
+
+  styles:
+    columns: [id, code, wbs, node_name, description, style_mpv,
+              category_1, category_2, collection, parent_season, original_season,
+              product_type, development_type, shape, theme,
+              active, inline, carry_over, is_template,
+              default_color, default_size, actual_size_range, main_materials,
+              crew, crew_type, classifier_3, designated_product_source,
+              cnt_order, cnt_colorway, cnt_documents,
+              fob_calc, sample_cost, fob_negotiated,
+              total_order_volume, total_shipment_qty,
+              modified_by, _modified_at]
+
+# Pre-defined, parameterized templates. The model fills in parameters only;
+# every referenced column must be whitelisted above (validated at startup).
+templates:
+  get_style_by_code:
+    description: >
+      Get a single product style's core details (incl. cost fields) by its
+      exact style code, e.g. 'AW-71505-012-319'.
+    sql: >
+      SELECT id, code, node_name, description, product_type, shape, theme,
+             category_1, category_2, collection, parent_season,
+             default_color, default_size, fob_calc, sample_cost, fob_negotiated
+      FROM centric_8_plm.styles
+      WHERE code = %(code)s
+    parameters:
+      code: { type: str, required: true, description: "Exact style code" }
+
+  list_styles_in_collection:
+    description: >
+      List styles in a given collection (matched by the collection code/name
+      as stored on the style), most recent first.
+    sql: >
+      SELECT code, node_name, product_type, parent_season, _modified_at
+      FROM centric_8_plm.styles
+      WHERE collection = %(collection)s
+      ORDER BY _modified_at DESC
+      LIMIT %(limit)s
+    parameters:
+      collection: { type: str, required: true, description: "Collection code or name" }
+      limit: { type: int, required: false, default: 50, description: "Max rows (1-200)" }
