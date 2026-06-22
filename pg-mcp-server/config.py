@@ -35,11 +35,31 @@ class Settings(BaseSettings):
     statement_timeout_ms: int = 5000
     max_rows: int = 200
 
-    # OAuth 2.1 — required for the ChatGPT Enterprise connector, optional for local dev.
-    # With Microsoft Entra ID as the authorization server, set issuer + jwks_uri + audience.
+    # ── OAuth 2.1 ────────────────────────────────────────────────────────────
+    # Two mutually exclusive modes, selected by build_auth() in this order. Leave
+    # everything blank for local dev (no auth — never expose publicly).
+    #
+    # Mode 1 — Azure OAuth proxy (preferred; required for the ChatGPT connector).
+    # FastMCP's AzureProvider publishes the OAuth discovery + dynamic-registration
+    # endpoints ChatGPT needs and proxies login to ONE Entra app registration.
+    oauth_client_id: str | None = None
+    oauth_client_secret: str | None = None
+    oauth_tenant_id: str | None = None
+    # Public HTTPS base URL of THIS server, no trailing slash, e.g.
+    # https://pg-mcp-server.<region>.azurecontainerapps.io — must match exactly.
+    oauth_base_url: str | None = None
+    # Optional: API identifier (defaults to api://<client_id>) and a stable JWT
+    # signing key (set one for restart-stable / multi-replica sessions).
+    oauth_identifier_uri: str | None = None
+    oauth_jwt_signing_key: str | None = None
+
+    # Mode 2 — token-only validation (resource server): validate incoming JWTs
+    # against an external authorization server; no discovery/registration endpoints.
     oauth_issuer_url: str | None = None
     oauth_jwks_uri: str | None = None
     oauth_audience: str | None = None
+
+    # Scopes required on the token (shared by both modes).
     oauth_required_scopes: list[str] = ["pg.read"]
 
 

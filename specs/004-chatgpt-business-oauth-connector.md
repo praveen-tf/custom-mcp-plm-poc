@@ -1,6 +1,6 @@
 # 004 ChatGPT Business Connector via FastMCP Azure OAuth Proxy
 
-**Status:** draft
+**Status:** in-progress — Phase A (server auth) complete & verified
 **Created:** 2026-06-22
 **Last updated:** 2026-06-22
 
@@ -76,7 +76,7 @@ pg-mcp-server validates the JWT → queries Postgres on the VM as mcp_readonly (
   FastMCP proxy bridges it with one fixed Entra app. Verified API present in `fastmcp 3.4.2`.
 - **`base_url` must equal the public host exactly** (`https://<app>.<region>.azurecontainerapps.io`,
   no trailing slash). The connector URL is `<base_url>/mcp`; the Entra redirect URI is
-  `<base_url>` + the provider's callback path (default `/auth/callback` — confirm at runtime).
+  `<base_url>/auth/callback` (verified default). `identifier_uri` defaults to `api://<client_id>`.
 - **Contributor-friendly secrets.** Store the DB URL and the OAuth client secret as **plain Container
   App secrets**, or use **Key Vault on the access-policy model** (the user is Contributor on
   `Several_Millers_Default`, so no RBAC role assignments). ACR pull via **admin user**. See [[sm-deploy-access-constraints]].
@@ -103,30 +103,28 @@ Phased; Azure/Entra changes can take ~1 min to propagate. Each task ends with a 
 
 ### Phase A — Server: add the AzureProvider auth path *(code; do first, locally)*
 
-- [ ] **A1: Config vars** — `config.py`
-      Add `oauth_client_id/secret/tenant_id/base_url` (all `str | None = None`), `oauth_identifier_uri`
-      and `oauth_jwt_signing_key` (optional). Keep `oauth_required_scopes` (default `["pg.read"]`).
-      Verify: `uv run python -c "from config import Settings"` imports clean.
+- [x] **A1: Config vars** — `config.py`
+      Added `oauth_client_id/secret/tenant_id/base_url` (all `str | None = None`), `oauth_identifier_uri`
+      and `oauth_jwt_signing_key` (optional). Kept `oauth_required_scopes` (default `["pg.read"]`).
+      Verified: imports clean; `mypy` clean.
 
-- [ ] **A2: `build_auth()` branch** — `auth.py` *(depends on: A1)*
-      If `client_id and client_secret and tenant_id and base_url` are set → return
-      `AzureProvider(client_id=…, client_secret=…, tenant_id=…, base_url=…, required_scopes=…,
-      identifier_uri=…, jwt_signing_key=…)` and log `OAuth enabled (Azure proxy)`. Else keep the
-      existing `JWTVerifier` / `None` logic. Ref: `project_docs/fastmcp_oauth_proxy_entra.md`.
-      Verify: with proxy env vars set, `build_auth(get_settings())` returns an `AzureProvider`.
+- [x] **A2: `build_auth()` branch** — `auth.py`
+      Returns `AzureProvider` when `client_id`+`client_secret`+`tenant_id`+`base_url` are set (logs
+      `OAuth enabled (Azure proxy, base_url=…)`); else the existing `JWTVerifier` / `None` logic.
+      Return type annotated `AuthProvider | None`. Verified: returns `AzureProvider` with proxy vars.
 
-- [ ] **A3: Tests** — `tests/test_auth.py` *(depends on: A2)*
-      Cases: proxy vars → `AzureProvider`; legacy issuer/jwks/audience → `JWTVerifier`; none → `None`.
-      Verify: `uv run pytest tests/test_auth.py` passes; `ruff` + `mypy` clean.
+- [x] **A3: Tests** — `tests/test_auth.py`
+      Cases: proxy vars → `AzureProvider`; proxy precedence over token vars; token vars → `JWTVerifier`;
+      none → `None`. Verified: 4/4 pass; full suite 41 passed/1 skipped; `ruff` + `mypy` clean.
 
-- [ ] **A4: Sample + docs** — `.env.example`
-      Document the new `PGMCP_OAUTH_*` proxy vars with an Entra example.
-      Verify: `.env.example` lists every new var.
+- [x] **A4: Sample + docs** — `.env.example`
+      Documented both OAuth modes (proxy + token-only) with every new `PGMCP_OAUTH_*` var.
 
-- [ ] **A5: Local smoke of discovery** *(depends on: A2)*
-      Run the server with the proxy vars (a tunnel/ngrok URL as `base_url`) and
-      `curl http://127.0.0.1:8000/.well-known/oauth-protected-resource`.
-      Verify: returns JSON with `authorization_servers` + `resource`; log shows `OAuth enabled`.
+- [x] **A5: Local smoke of discovery (offline)** 
+      Built `FastMCP(auth=AzureProvider(...))` and enumerated the ASGI routes: confirmed
+      `/.well-known/oauth-protected-resource/mcp`, `/.well-known/oauth-authorization-server`,
+      `/register`, `/authorize`, `/token`, `/auth/callback` are all mounted. (Live HTTP 200 check
+      needs a DB — done at deploy in Phase B.)
 
 ### Phase B — Azure infra (resource group `Several_Millers_Default`)
 
@@ -160,8 +158,8 @@ Phased; Azure/Entra changes can take ~1 min to propagate. Each task ends with a 
 - [ ] **C1: Register the app + expose the scope + redirect URI**
       New registration (note client ID + tenant ID). Expose an API → `api://<client-id>` → scope
       `pg.read`. Manifest `requestedAccessTokenVersion=2`. New client secret (copy). Authentication →
-      Web → Redirect URI = `https://<APP_HOST>` + the proxy callback path (default `/auth/callback`;
-      confirm from the running server's metadata). Grant admin consent for `pg.read`.
+      Web → Redirect URI = `https://<APP_HOST>/auth/callback` (verified default).
+      Grant admin consent for `pg.read`.
       Feed `client-id`/`secret`/`tenant-id` into B5. Ref: `project_docs/fastmcp_oauth_proxy_entra.md`.
       Verify: manifest shows `requestedAccessTokenVersion: 2` + the `pg.read` scope; consent Granted.
 
