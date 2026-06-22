@@ -5,3 +5,8 @@ __pycache__/
 .ruff_cache/
 .mypy_cache/
 .pytest_cache/
+
+# Real sampled data + generated artifacts from the synthetic-data workflow (spec 003).
+# Real values must never be committed; the synthetic SQL is regenerated on demand.
+pg-mcp-server/scripts/sample_data/
+pg-mcp-server/scripts/synthetic_load.sql
