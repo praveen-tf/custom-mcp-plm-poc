@@ -1,6 +1,6 @@
 # 003 Several Millers VM — Interim Test Deploy (synthetic data, no-auth)
 
-**Status:** in-progress
+**Status:** complete
 **Created:** 2026-06-22
 **Last updated:** 2026-06-22
 
@@ -123,19 +123,19 @@ on. Run runbook commands from `pg-mcp-server/` unless noted.
       Details: Add `pg-mcp-server/scripts/sample_data/` and `pg-mcp-server/scripts/synthetic_load.sql`.
       Verify: `git status` shows neither path as untracked after running the scripts.
 
-- [ ] **Task 1 (optional): Pull a real sample to inform synthesis**
+- [ ] **Task 1 (optional — skipped): Pull a real sample to inform synthesis**
       Run where the source DB is reachable read-only; real values stay local (git-ignored):
       `PGMCP_SOURCE_DSN='postgresql://reader:***@<source-host>:5432/mg_dwh?sslmode=require' uv run python scripts/pull_sample.py --rows 25`
       Verify: `scripts/sample_data/schema_types.json` + `sample_<table>.json` exist; no write is ever
       issued to the source (the script sets the connection read-only).
 
-- [ ] **Task 2: Generate the synthetic SQL (no source access needed)**
+- [x] **Task 2: Synthetic SQL ready** — used the self-contained `sql/synthetic_load.sql` (200 styles)
       `uv run python scripts/generate_synthetic_sql.py --types scripts/sample_data/schema_types.json > scripts/synthetic_load.sql`
       (drop `--types` if Task 1 was skipped; tune volume with `--styles/--collections/...`).
       Verify: stderr prints `Generated rows: …` + sample style codes; the `.sql` begins with
       `CREATE SCHEMA IF NOT EXISTS centric_8_plm;` and contains only whitelisted columns.
 
-- [ ] **Task 3: Provision the Azure VM (Portal)**
+- [x] **Task 3: Provision the Azure VM (Portal)**
       In resource group `Several_Millers_Default`, create an **Ubuntu Server 24.04 LTS** VM (e.g.
       `vm-pgmcp-test`, **Standard_B2s**) with **SSH public key** auth (user `azureuser`) and
       **inbound SSH (22) only** — do **not** open 5432 or 8000 (the endpoint stays private behind the
@@ -143,38 +143,38 @@ on. Run runbook commands from `pg-mcp-server/` unless noted.
       `pg-mcp-server/project_docs/azure_vm_test_deploy_runbook.md` (Part 1).
       Verify: the VM shows **Running** with a public IP; `ssh azureuser@<PUBLIC_IP>` lands a shell.
 
-- [ ] **Task 4: Provision Postgres on the VM + create the DB** *(depends on: Task 3)*
+- [x] **Task 4: Provision Postgres on the VM + create the DB** *(depends on: Task 3)*
       On the VM (Ubuntu): `sudo apt-get update && sudo apt-get install -y postgresql`, then
       `sudo -u postgres createdb mg_dwh`. (Docker alternative: `postgres:16`, then `createdb mg_dwh`.)
       Verify: `sudo -u postgres psql -d mg_dwh -c '\conninfo'` connects.
 
-- [ ] **Task 5: Transfer + load the synthetic SQL** *(depends on: Tasks 2, 4)*
+- [x] **Task 5: Transfer + load the synthetic SQL** *(depends on: Tasks 2, 4)*
       `scp scripts/synthetic_load.sql <user>@<vm>:/tmp/`, then on the VM
       `sudo -u postgres psql -d mg_dwh -v ON_ERROR_STOP=1 -f /tmp/synthetic_load.sql`.
       Verify: `sudo -u postgres psql -d mg_dwh -c "SELECT count(*) FROM centric_8_plm.styles;"` returns
       the generated count (e.g. 200).
 
-- [ ] **Task 6: Create the column-scoped `mcp_readonly` role** *(depends on: Task 5)*
+- [x] **Task 6: Create the column-scoped `mcp_readonly` role** *(depends on: Task 5)*
       `uv run python scripts/generate_role_sql.py > sql/role_setup.sql`, replace `CHANGE_ME` with a
       strong password, scp over, then `sudo -u postgres psql -d mg_dwh -v ON_ERROR_STOP=1 -f /tmp/role_setup.sql`.
       Verify: as `mcp_readonly`, `SELECT code FROM centric_8_plm.styles LIMIT 1` works but
       `INSERT INTO centric_8_plm.styles(id) VALUES ('x')` fails with
       `cannot execute INSERT in a read-only transaction`.
 
-- [ ] **Task 7: Install + configure the server on the VM** *(depends on: Task 6)*
+- [x] **Task 7: Install + configure the server on the VM** *(depends on: Task 6)*
       Copy `pg-mcp-server/` to the VM (or `git clone`), `uv sync`, then create `.env`:
       `PGMCP_DATABASE_URL=postgresql://mcp_readonly:<password>@127.0.0.1:5432/mg_dwh`,
       `PGMCP_HOST=127.0.0.1`, and leave all three `PGMCP_OAUTH_*` blank
       (add `?sslmode=require` only if the VM's Postgres has TLS).
       Verify: `uv run python -c "from config import get_settings; get_settings()"` loads with no error.
 
-- [ ] **Task 8: Run the server (no-auth, localhost)** *(depends on: Task 7)*
+- [x] **Task 8: Run the server (no-auth, localhost)** *(depends on: Task 7)*
       `uv run python main.py` (to keep it running: a systemd unit, or
       `nohup uv run python main.py > server.log 2>&1 &`).
       Verify: log shows `running WITHOUT authentication`, `database pool opened`,
       `policy validated against DB: 5 tables, 2 templates`, then `Uvicorn running on http://127.0.0.1:8000`.
 
-- [ ] **Task 9: Smoke-test end to end** *(depends on: Task 8)*
+- [x] **Task 9: Smoke-test end to end** *(depends on: Task 8)*
       On the VM: `uv run python scripts/smoke_test.py --url http://127.0.0.1:8000/mcp/`. To drive it
       from a laptop / MCP inspector, tunnel first: `ssh -L 8000:127.0.0.1:8000 <user>@<vm>`, then point
       the client at `http://127.0.0.1:8000/mcp/`.
@@ -182,14 +182,14 @@ on. Run runbook commands from `pg-mcp-server/` unless noted.
 
 ## 6. Acceptance Criteria
 
-- [ ] `synthetic_load.sql` loads cleanly into `mg_dwh.centric_8_plm`; only whitelisted columns, no real values.
-- [ ] `mcp_readonly` reads whitelisted columns; writes fail (read-only transaction).
-- [ ] Server runs no-auth on `127.0.0.1:8000`, logs the no-auth warning, validates policy (5 tables, 2 templates).
-- [ ] `smoke_test.py` reports 9/9; non-whitelisted column, `SELECT *`, and write are all rejected before the DB.
-- [ ] `scripts/sample_data/` and `scripts/synthetic_load.sql` are git-ignored.
-- [ ] The endpoint is only ever reached via the SSH tunnel — never bound to a public interface.
-- [ ] The Azure VM exists in `Several_Millers_Default` with **SSH (22) only** inbound (no public 5432/8000).
-- [ ] `ruff` + `mypy` are clean on all three new scripts.
+- [x] `synthetic_load.sql` loads cleanly into `mg_dwh.centric_8_plm`; only whitelisted columns, no real values.
+- [x] `mcp_readonly` reads whitelisted columns; writes fail (read-only transaction).
+- [x] Server runs no-auth on `127.0.0.1:8000`, logs the no-auth warning, validates policy (5 tables, 2 templates).
+- [x] `smoke_test.py` reports 9/9; non-whitelisted column, `SELECT *`, and write are all rejected before the DB.
+- [x] `scripts/sample_data/` and `scripts/synthetic_load.sql` are git-ignored.
+- [x] The endpoint is only ever reached via the SSH tunnel — never bound to a public interface.
+- [x] The Azure VM exists in `Several_Millers_Default` with **SSH (22) only** inbound (no public 5432/8000).
+- [x] `ruff` + `mypy` are clean on all three new scripts.
 
 > Depends on the existing `pg-mcp-server` (spec 001): `policy.yaml`, `models.py`, `main.py`,
 > `config.py`, `scripts/generate_role_sql.py`.

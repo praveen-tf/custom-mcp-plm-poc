@@ -1,6 +1,6 @@
 # 004 ChatGPT Business Connector via FastMCP Azure OAuth Proxy
 
-**Status:** in-progress — Phase A (server auth) complete & verified
+**Status:** in-progress — Phase A done; Phase B–D next (Option A: Container Apps, to mirror the client)
 **Created:** 2026-06-22
 **Last updated:** 2026-06-22
 
@@ -77,9 +77,12 @@ pg-mcp-server validates the JWT → queries Postgres on the VM as mcp_readonly (
 - **`base_url` must equal the public host exactly** (`https://<app>.<region>.azurecontainerapps.io`,
   no trailing slash). The connector URL is `<base_url>/mcp`; the Entra redirect URI is
   `<base_url>/auth/callback` (verified default). `identifier_uri` defaults to `api://<client_id>`.
-- **Contributor-friendly secrets.** Store the DB URL and the OAuth client secret as **plain Container
-  App secrets**, or use **Key Vault on the access-policy model** (the user is Contributor on
-  `Several_Millers_Default`, so no RBAC role assignments). ACR pull via **admin user**. See [[sm-deploy-access-constraints]].
+- **Option A (Container Apps) chosen** to mirror the client's own architecture — the server runs on
+  Container Apps (public HTTPS) and reaches the VM's Postgres over the VNet.
+- **Secrets via Key Vault (access-policy model).** Store the DB URL + OAuth client secret in the Key
+  Vault; grant the Container App's **system-assigned managed identity** secret *Get* via an **access
+  policy** (Contributor can set access policies — no RBAC role assignment). ACR pull via **admin
+  user**. See [[sm-deploy-access-constraints]].
 - **Business connector is immutable after publish** — to change the URL/OAuth you delete + recreate.
   Pick the path (`/mcp`) and host before publishing.
 - **Backward compatible.** No OAuth vars → unchanged; spec 003's no-auth local test keeps working.
@@ -128,9 +131,14 @@ Phased; Azure/Entra changes can take ~1 min to propagate. Each task ends with a 
 
 ### Phase B — Azure infra (resource group `Several_Millers_Default`)
 
-- [ ] **B1: VM Postgres + synthetic data + role** — follow `specs/003` + the VM runbook
-      Verify: `SELECT count(*) FROM centric_8_plm.styles;` returns the generated count; `mcp_readonly`
-      reads but cannot write.
+- [x] **B1: VM Postgres + synthetic data + role** — done via spec 003 (200 styles loaded; role read-only).
+
+- [ ] **B1b: Open the VM's Postgres to the VNet** *(depends on: B3 subnet CIDR)*
+      Postgres was localhost-only for spec 003. On the VM: set `listen_addresses` to include the VNet
+      private IP (or `'*'`) in `postgresql.conf`; add `host mg_dwh mcp_readonly <ACA_SUBNET_CIDR> scram-sha-256`
+      to `pg_hba.conf`; `sudo systemctl restart postgresql`. Give the VM NIC a **static private IP** so it
+      survives restarts. (The VM NSG rule from B3 is what actually admits the subnet to 5432.)
+      Verify: from the VM, `psql -h <VM_PRIVATE_IP> -U mcp_readonly -d mg_dwh -c 'SELECT 1'` works.
 
 - [ ] **B2: ACR + build image** *(Contributor; admin user for pull)*
       Create a Container Registry (Basic) in the RG; `az acr build -r <ACR> -t pg-mcp-server:latest .`.
@@ -146,10 +154,13 @@ Phased; Azure/Entra changes can take ~1 min to propagate. Each task ends with a 
       Verify: env provisions and shows the VNet + subnet.
 
 - [ ] **B5: Container App + secrets + env vars** *(depends on: B2, B4; client secret from C1)*
-      App `pg-mcp-server` from ACR (`latest`, admin-user pull), ingress from anywhere, **target port 8000**.
-      Secrets (plain or Key Vault access-policy): `database-url`, `oauth-client-secret`. Env vars:
-      `PGMCP_DATABASE_URL`(→secret), `PGMCP_HOST=0.0.0.0`, `PGMCP_OAUTH_CLIENT_ID`,
-      `PGMCP_OAUTH_CLIENT_SECRET`(→secret), `PGMCP_OAUTH_TENANT_ID`, `PGMCP_OAUTH_BASE_URL=https://<APP_HOST>`.
+      App `pg-mcp-server` from ACR (`latest`, admin-user pull), ingress from anywhere, **target port 8000**,
+      **system-assigned managed identity = On**. Secrets via **Key Vault (access-policy)**: `database-url`
+      (points at `<VM_PRIVATE_IP>:5432`), `oauth-client-secret` — grant the app's managed identity *Get* on
+      the vault via an access policy. Env vars: `PGMCP_DATABASE_URL`(→secret), `PGMCP_HOST=0.0.0.0`,
+      `PGMCP_OAUTH_CLIENT_ID`, `PGMCP_OAUTH_CLIENT_SECRET`(→secret), `PGMCP_OAUTH_TENANT_ID`,
+      `PGMCP_OAUTH_BASE_URL=https://<APP_HOST>`. Cost: **min replicas 1** for a stable OAuth proxy, or **0**
+      to idle (cold start + possible re-consent).
       Verify: latest revision Running; Overview shows the Application Url; log shows `OAuth enabled` +
       `policy validated against DB: 5 tables, 2 templates`; `curl -i https://<APP_HOST>/mcp/` → **401**.
 
