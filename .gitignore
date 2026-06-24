@@ -6,6 +6,9 @@ __pycache__/
 .mypy_cache/
 .pytest_cache/
 
+# SpecStory conversation transcripts — local-only, not versioned.
+.specstory/
+
 # Real sampled data + generated artifacts from the synthetic-data workflow (spec 003).
 # Real values must never be committed; the synthetic SQL is regenerated on demand.
 pg-mcp-server/scripts/sample_data/
