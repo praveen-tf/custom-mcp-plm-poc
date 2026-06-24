@@ -1,0 +1,914 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1.0" />
+<title>Several Millers Sandbox · Synthetic Data, SSH Tunnel & OAuth Code — Runbook (Specs 003 + 004)</title>
+<meta name="description" content="How Several Millers' sandbox was built: synthetic data on an Azure VM with a private SSH-tunnel endpoint (003), the AzureProvider OAuth code upgrade, and the blocked Container Apps plan (004)." />
+<link rel="preconnect" href="https://fonts.googleapis.com" />
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+<link href="https://fonts.googleapis.com/css2?family=Bricolage+Grotesque:opsz,wght@12..96,500;12..96,700;12..96,800&family=Hanken+Grotesk:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500;700&display=swap" rel="stylesheet" />
+<style>
+:root{
+  --bg:#0a0c10;
+  --bg-grid:#0d1016;
+  --raised:#11151c;
+  --surface:#161b23;
+  --surface-2:#1c222c;
+  --line:#262d39;
+  --line-bright:#333d4d;
+  --ink:#e7ecf3;
+  --ink-dim:#aab4c2;
+  --ink-faint:#6c7888;
+  --amber:#2dd4bf;       /* primary accent (teal = test/staging) */
+  --amber-soft:#0f2e2a;
+  --cg:#19c37d;          /* ChatGPT  */
+  --caddy:#38bdf8;       /* Caddy / proxy */
+  --srv:#ffb13d;         /* server   */
+  --entra:#c084fc;       /* Entra    */
+  --pg:#fb7185;          /* Postgres */
+  --danger:#ff5d6c;
+  --ok:#37d39a;
+  --r:14px;
+  --r-sm:9px;
+  --mono:"JetBrains Mono",ui-monospace,SFMono-Regular,Menlo,monospace;
+  --disp:"Bricolage Grotesque",system-ui,sans-serif;
+  --body:"Hanken Grotesk",system-ui,sans-serif;
+  --shadow:0 18px 50px -22px rgba(0,0,0,.85);
+}
+*{box-sizing:border-box;margin:0;padding:0}
+html{scroll-behavior:smooth}
+body{
+  font-family:var(--body);
+  background:var(--bg);
+  color:var(--ink);
+  line-height:1.6;
+  -webkit-font-smoothing:antialiased;
+  overflow-x:hidden;
+}
+body::before{
+  content:"";position:fixed;inset:0;z-index:-2;
+  background:
+    linear-gradient(to right,var(--bg-grid) 1px,transparent 1px) 0 0/46px 46px,
+    linear-gradient(to bottom,var(--bg-grid) 1px,transparent 1px) 0 0/46px 46px,
+    radial-gradient(1200px 700px at 78% -8%,rgba(45,212,191,.07),transparent 60%),
+    radial-gradient(1000px 800px at 0% 100%,rgba(56,189,248,.05),transparent 55%),
+    var(--bg);
+}
+body::after{
+  content:"";position:fixed;inset:0;z-index:-1;pointer-events:none;
+  background:radial-gradient(circle at 50% 35%,transparent 55%,rgba(0,0,0,.55) 100%);
+}
+a{color:inherit;text-decoration:none}
+::selection{background:rgba(45,212,191,.28);color:#fff}
+
+.shell{display:grid;grid-template-columns:264px 1fr;max-width:1480px;margin:0 auto}
+nav.side{
+  position:sticky;top:0;height:100vh;align-self:start;
+  border-right:1px solid var(--line);
+  padding:28px 22px;display:flex;flex-direction:column;gap:4px;
+  background:linear-gradient(180deg,rgba(17,21,28,.6),rgba(10,12,16,.2));
+  backdrop-filter:blur(6px);
+}
+.brand{display:flex;align-items:center;gap:11px;margin-bottom:26px}
+.brand .dot{width:34px;height:34px;border-radius:9px;flex:none;
+  background:conic-gradient(from 200deg,var(--amber),#0ea5a0 40%,var(--entra) 75%,var(--caddy));
+  box-shadow:0 0 0 1px rgba(255,255,255,.08),0 8px 22px -8px var(--amber);position:relative}
+.brand .dot::after{content:"";position:absolute;inset:7px;border-radius:5px;background:var(--bg);}
+.brand .dot::before{content:"⌘";position:absolute;inset:0;display:grid;place-items:center;font-family:var(--mono);font-size:14px;color:var(--amber);z-index:1}
+.brand b{font-family:var(--disp);font-weight:800;font-size:15px;letter-spacing:-.01em;line-height:1.1}
+.brand span{display:block;font-size:11px;color:var(--ink-faint);font-family:var(--mono);letter-spacing:.04em}
+.navlink{
+  display:flex;align-items:center;gap:11px;padding:9px 12px;border-radius:9px;
+  color:var(--ink-dim);font-size:13.5px;font-weight:500;transition:.18s;position:relative;
+}
+.navlink .num{font-family:var(--mono);font-size:11px;color:var(--ink-faint);width:18px;flex:none}
+.navlink:hover{background:var(--surface);color:var(--ink)}
+.navlink.active{background:linear-gradient(90deg,rgba(45,212,191,.14),transparent);color:var(--amber)}
+.navlink.active .num{color:var(--amber)}
+.navlink.active::before{content:"";position:absolute;left:-22px;top:8px;bottom:8px;width:3px;border-radius:0 3px 3px 0;background:var(--amber)}
+.side .meta{margin-top:auto;padding-top:20px;border-top:1px solid var(--line);font-family:var(--mono);font-size:10.5px;color:var(--ink-faint);line-height:1.8}
+.side .meta b{color:var(--ok);font-weight:500}
+
+main{padding:0 clamp(20px,4vw,68px) 120px;min-width:0}
+section{padding-top:96px;scroll-margin-top:24px}
+.eyebrow{font-family:var(--mono);font-size:12px;letter-spacing:.22em;text-transform:uppercase;color:var(--amber);display:flex;align-items:center;gap:12px;margin-bottom:16px}
+.eyebrow::before{content:"";width:26px;height:1px;background:var(--amber)}
+h2.sec{font-family:var(--disp);font-weight:800;font-size:clamp(26px,3.4vw,42px);letter-spacing:-.02em;line-height:1.05;margin-bottom:14px}
+.lead{font-size:16.5px;color:var(--ink-dim);max-width:70ch;margin-bottom:30px}
+.lead b{color:var(--ink);font-weight:600}
+
+.hero{min-height:92vh;display:flex;flex-direction:column;justify-content:center;padding-top:60px;position:relative}
+.hero .badges{display:flex;gap:9px;flex-wrap:wrap;margin-bottom:26px}
+.pill{font-family:var(--mono);font-size:11.5px;letter-spacing:.03em;padding:6px 12px;border-radius:100px;border:1px solid var(--line-bright);color:var(--ink-dim);background:var(--surface);display:inline-flex;align-items:center;gap:7px}
+.pill.live{color:var(--ok);border-color:rgba(55,211,154,.35)}
+.pill.live .blip{width:7px;height:7px;border-radius:50%;background:var(--ok);box-shadow:0 0 0 0 rgba(55,211,154,.6);animation:blip 1.8s infinite}
+.pill.warn{color:var(--srv);border-color:rgba(255,177,61,.4)}
+@keyframes blip{0%{box-shadow:0 0 0 0 rgba(55,211,154,.55)}70%{box-shadow:0 0 0 8px rgba(55,211,154,0)}100%{box-shadow:0 0 0 0 rgba(55,211,154,0)}}
+h1{font-family:var(--disp);font-weight:800;font-size:clamp(40px,7vw,86px);line-height:.98;letter-spacing:-.035em;margin-bottom:22px}
+h1 .grad{background:linear-gradient(100deg,var(--amber),#34d3a6 45%,var(--caddy));-webkit-background-clip:text;background-clip:text;color:transparent}
+.hero p.sub{font-size:clamp(17px,2vw,21px);color:var(--ink-dim);max-width:64ch;margin-bottom:40px}
+.hero p.sub code{font-family:var(--mono);font-size:.88em;color:var(--amber);background:var(--amber-soft);padding:2px 7px;border-radius:6px}
+.factgrid{display:grid;grid-template-columns:repeat(auto-fit,minmax(176px,1fr));gap:1px;background:var(--line);border:1px solid var(--line);border-radius:var(--r);overflow:hidden}
+.fact{background:var(--raised);padding:18px 20px}
+.fact .k{font-family:var(--mono);font-size:11px;letter-spacing:.06em;text-transform:uppercase;color:var(--ink-faint);margin-bottom:7px}
+.fact .v{font-size:16px;font-weight:600;color:var(--ink);font-family:var(--mono);word-break:break-word}
+.fact .v small{display:block;font-family:var(--body);font-weight:400;font-size:12.5px;color:var(--ink-faint);margin-top:3px;letter-spacing:0}
+.scrollcue{margin-top:54px;font-family:var(--mono);font-size:12px;color:var(--ink-faint);display:flex;align-items:center;gap:10px;letter-spacing:.04em}
+.scrollcue .ln{width:40px;height:1px;background:var(--line-bright);position:relative;overflow:hidden}
+.scrollcue .ln::after{content:"";position:absolute;inset:0;width:14px;background:var(--amber);animation:slide 2.4s infinite}
+@keyframes slide{0%{transform:translateX(-14px)}100%{transform:translateX(40px)}}
+
+.card{background:var(--surface);border:1px solid var(--line);border-radius:var(--r);padding:22px;box-shadow:var(--shadow)}
+.grid2{display:grid;grid-template-columns:1fr 1fr;gap:18px}
+.callout{border:1px solid var(--line-bright);border-left:3px solid var(--amber);background:linear-gradient(90deg,rgba(45,212,191,.07),var(--surface) 40%);border-radius:var(--r-sm);padding:18px 20px;font-size:14.5px;color:var(--ink-dim)}
+.callout b{color:var(--ink)}
+.callout.warn{border-left-color:var(--danger);background:linear-gradient(90deg,rgba(255,93,108,.08),var(--surface) 40%)}
+code,kbd{font-family:var(--mono)}
+.tag{font-family:var(--mono);font-size:10.5px;padding:3px 8px;border-radius:5px;border:1px solid var(--line-bright);color:var(--ink-dim);background:var(--bg)}
+
+/* arch explorer */
+.arch{display:grid;grid-template-columns:1.35fr 1fr;gap:22px;align-items:start}
+@media(max-width:1080px){.arch{grid-template-columns:1fr}}
+.archmap{background:var(--raised);border:1px solid var(--line);border-radius:var(--r);padding:26px 24px;position:relative;overflow:hidden}
+.archmap .zone{font-family:var(--mono);font-size:10.5px;letter-spacing:.1em;text-transform:uppercase;color:var(--ink-faint);margin:4px 0 12px}
+.vmbox{border:1px dashed var(--line-bright);border-radius:12px;padding:16px;margin-top:6px;position:relative}
+.vmbox .vmtag{position:absolute;top:-9px;left:14px;background:var(--raised);padding:0 8px;font-family:var(--mono);font-size:10.5px;color:var(--caddy);letter-spacing:.05em}
+.node{display:flex;align-items:center;gap:13px;width:100%;text-align:left;background:var(--surface);border:1px solid var(--line);border-radius:10px;padding:13px 15px;cursor:pointer;transition:.18s;color:var(--ink);margin:10px 0;position:relative}
+.node:hover{border-color:var(--nc,var(--amber));transform:translateY(-1px)}
+.node.sel{border-color:var(--nc);box-shadow:0 0 0 1px var(--nc),0 10px 26px -14px var(--nc);background:var(--surface-2)}
+.node .ic{width:38px;height:38px;border-radius:9px;flex:none;display:grid;place-items:center;font-family:var(--mono);font-weight:700;font-size:13px;color:var(--nc);background:color-mix(in srgb,var(--nc) 14%,transparent);border:1px solid color-mix(in srgb,var(--nc) 40%,transparent)}
+.node .nt{font-weight:600;font-size:14.5px}
+.node .ns{font-family:var(--mono);font-size:11px;color:var(--ink-faint)}
+.flowarrow{display:flex;align-items:center;gap:8px;justify-content:center;color:var(--ink-faint);font-family:var(--mono);font-size:10.5px;margin:-2px 0}
+.flowarrow .l{height:18px;width:1px;background:linear-gradient(var(--line-bright),transparent)}
+.archdetail{position:sticky;top:24px}
+.archdetail .dhead{display:flex;align-items:center;gap:12px;margin-bottom:14px}
+.archdetail .dic{width:44px;height:44px;border-radius:10px;display:grid;place-items:center;font-family:var(--mono);font-weight:700;color:var(--dc,var(--amber));background:color-mix(in srgb,var(--dc) 15%,transparent);border:1px solid color-mix(in srgb,var(--dc) 40%,transparent)}
+.archdetail h3{font-family:var(--disp);font-size:21px;font-weight:700;letter-spacing:-.01em}
+.archdetail .dsub{font-family:var(--mono);font-size:11.5px;color:var(--dc)}
+.krow{display:flex;justify-content:space-between;gap:14px;padding:10px 0;border-bottom:1px solid var(--line);font-size:13.5px}
+.krow:last-child{border-bottom:0}
+.krow .kk{color:var(--ink-faint);font-family:var(--mono);font-size:11.5px;letter-spacing:.03em;flex:none}
+.krow .kv{text-align:right;font-family:var(--mono);font-size:12.5px;color:var(--ink);word-break:break-word}
+.dnote{margin-top:14px;font-size:13.5px;color:var(--ink-dim)}
+
+/* stepper (reused for the pipeline) */
+.stage{background:var(--raised);border:1px solid var(--line);border-radius:var(--r);padding:24px 22px 8px;position:relative}
+.lanes{position:relative}
+.lanerow{display:grid;grid-template-columns:repeat(6,1fr);gap:8px;position:relative;z-index:2}
+.lane{display:flex;flex-direction:column;align-items:center;gap:8px}
+.actor{width:100%;border:1px solid var(--line);background:var(--surface);border-radius:10px;padding:12px 8px;text-align:center;transition:.25s;position:relative}
+.actor .ab{font-family:var(--mono);font-weight:700;font-size:12px;color:var(--ac)}
+.actor .al{font-size:10px;color:var(--ink-faint);margin-top:3px;line-height:1.25}
+.actor.on{border-color:var(--ac);background:color-mix(in srgb,var(--ac) 12%,var(--surface));box-shadow:0 0 0 1px var(--ac),0 0 26px -8px var(--ac)}
+.actor.dim{opacity:.4}
+.svgwrap{position:absolute;inset:0;z-index:1;pointer-events:none;overflow:visible}
+.packet{fill:var(--amber);filter:drop-shadow(0 0 5px var(--amber))}
+.stepmeta{display:flex;gap:16px;align-items:flex-start;margin-top:22px;flex-wrap:wrap}
+.stepnum{font-family:var(--disp);font-weight:800;font-size:46px;line-height:.9;color:var(--amber);flex:none;letter-spacing:-.04em}
+.stepnum small{display:block;font-family:var(--mono);font-size:11px;color:var(--ink-faint);font-weight:400;letter-spacing:.08em;margin-top:4px}
+.stepbody{flex:1;min-width:280px}
+.stepbody h3{font-family:var(--disp);font-size:21px;font-weight:700;letter-spacing:-.01em;margin-bottom:6px}
+.stepbody .flowtag{font-family:var(--mono);font-size:11px;color:var(--ink-faint);margin-bottom:12px}
+.stepbody .flowtag b{color:var(--ac1,var(--amber))}
+.stepbody p.plain{font-size:14.5px;color:var(--ink-dim);margin-bottom:14px}
+.wire{background:var(--bg);border:1px solid var(--line);border-radius:var(--r-sm);font-family:var(--mono);font-size:12.5px;overflow:hidden;margin-bottom:8px}
+.wire .wh{display:flex;align-items:center;gap:8px;padding:8px 12px;border-bottom:1px solid var(--line);background:var(--surface);font-size:10.5px;letter-spacing:.06em;text-transform:uppercase;color:var(--ink-faint)}
+.wire .verb{font-weight:700;padding:1px 7px;border-radius:4px;font-size:10.5px;background:rgba(45,212,191,.16);color:var(--amber)}
+.wire pre{padding:12px 14px;color:var(--ink);white-space:pre-wrap;word-break:break-word;line-height:1.55;font-size:12px}
+.wire pre .c{color:var(--ink-faint)}
+.controls{display:flex;align-items:center;gap:12px;margin-top:18px;border-top:1px solid var(--line);padding-top:16px}
+.btn{font-family:var(--body);font-weight:600;font-size:13.5px;border:1px solid var(--line-bright);background:var(--surface);color:var(--ink);padding:9px 16px;border-radius:9px;cursor:pointer;transition:.16s;display:inline-flex;align-items:center;gap:8px}
+.btn:hover:not(:disabled){border-color:var(--amber);color:var(--amber)}
+.btn:disabled{opacity:.35;cursor:not-allowed}
+.btn.primary{background:var(--amber);color:#06201c;border-color:var(--amber)}
+.btn.primary:hover{filter:brightness(1.08);color:#06201c}
+.dots{display:flex;gap:7px;margin-left:auto}
+.dots i{width:9px;height:9px;border-radius:50%;background:var(--line-bright);cursor:pointer;transition:.18s}
+.dots i.on{background:var(--amber);transform:scale(1.18)}
+.dots i.done{background:color-mix(in srgb,var(--amber) 45%,var(--line-bright))}
+.progress{height:3px;background:var(--line);border-radius:3px;overflow:hidden;margin:18px 0 0}
+.progress i{display:block;height:100%;background:linear-gradient(90deg,var(--amber),#0ea5a0);transition:width .4s ease}
+
+/* auth-mode selector */
+.authwrap{display:grid;grid-template-columns:340px 1fr;gap:22px;align-items:start}
+@media(max-width:980px){.authwrap{grid-template-columns:1fr}}
+.toggles{display:flex;flex-direction:column;gap:12px;position:sticky;top:24px}
+.toggle{display:flex;align-items:center;gap:14px;border:1px solid var(--line);background:var(--surface);border-radius:11px;padding:14px 16px;cursor:pointer;transition:.16s}
+.toggle:hover{border-color:var(--line-bright)}
+.toggle.on{border-color:var(--amber);box-shadow:0 0 0 1px var(--amber)}
+.sw{width:42px;height:24px;border-radius:100px;background:var(--line-bright);position:relative;flex:none;transition:.2s}
+.toggle.on .sw{background:var(--amber)}
+.sw::after{content:"";position:absolute;top:3px;left:3px;width:18px;height:18px;border-radius:50%;background:#fff;transition:.2s}
+.toggle.on .sw::after{transform:translateX(18px)}
+.toggle .tl{font-weight:600;font-size:13.5px}
+.toggle .tv{font-family:var(--mono);font-size:10.5px;color:var(--ink-faint);margin-top:2px;line-height:1.4}
+.varchips{display:flex;flex-wrap:wrap;gap:5px;margin-top:8px}
+.vc{font-family:var(--mono);font-size:9.5px;padding:2px 6px;border-radius:4px;border:1px solid var(--line);color:var(--ink-faint);background:var(--bg);opacity:.45;transition:.2s}
+.toggle.on .vc{opacity:1;border-color:color-mix(in srgb,var(--amber) 40%,transparent);color:var(--amber)}
+.authcode{background:#070a0e;border:1px solid var(--line);border-radius:var(--r);overflow:hidden;font-family:var(--mono);font-size:12.5px;line-height:1.65}
+.authcode .cbh{padding:9px 14px;border-bottom:1px solid var(--line);background:var(--surface);font-size:11.5px;color:var(--ink-dim)}
+.authcode pre{padding:14px 16px;color:#9fb0c3;white-space:pre-wrap}
+.authcode .br{display:block;padding:2px 8px;margin:1px -8px;border-radius:5px;transition:.2s;border-left:2px solid transparent}
+.authcode .br.active{background:rgba(45,212,191,.12);border-left-color:var(--amber);color:var(--ink)}
+.authcode .br.active.danger{background:rgba(255,93,108,.12);border-left-color:var(--danger)}
+.authcode .kw{color:var(--entra)}.authcode .fn{color:var(--amber)}.authcode .st{color:var(--cg)}.authcode .cm{color:#566}
+.authres{margin-top:14px;border:1px solid var(--line);border-radius:11px;padding:16px 18px;background:var(--surface);transition:.2s}
+.authres.A{border-color:var(--amber);box-shadow:0 0 0 1px var(--amber)}
+.authres.B{border-color:var(--caddy);box-shadow:0 0 0 1px var(--caddy)}
+.authres.C{border-color:var(--danger);box-shadow:0 0 0 1px var(--danger)}
+.authres .rt{font-family:var(--disp);font-size:18px;font-weight:700}
+.authres .rlog{font-family:var(--mono);font-size:12px;background:var(--bg);border:1px solid var(--line);border-radius:7px;padding:9px 11px;margin:10px 0;color:var(--ink-dim);white-space:pre-wrap}
+.authres .rmeta{font-size:13.5px;color:var(--ink-dim)}
+.authres .rmeta b{color:var(--ink)}
+.authres .usedby{display:inline-block;margin-top:10px;font-family:var(--mono);font-size:10.5px;padding:3px 10px;border-radius:100px;border:1px solid var(--line-bright);color:var(--ink-dim)}
+
+/* tool/feature cards */
+.tools{display:grid;grid-template-columns:repeat(auto-fill,minmax(280px,1fr));gap:14px}
+.tool{border:1px solid var(--line);background:var(--surface);border-radius:12px;padding:16px 18px;transition:.18s}
+.tool .sig{font-family:var(--mono);font-size:13px;color:var(--amber);margin-bottom:8px;font-weight:500}
+.tool .td{font-size:13px;color:var(--ink-dim)}
+
+/* checklist accordion */
+.grouphead{font-family:var(--mono);font-size:11px;letter-spacing:.14em;text-transform:uppercase;color:var(--ink-faint);margin:26px 0 12px;display:flex;align-items:center;gap:12px}
+.grouphead::after{content:"";flex:1;height:1px;background:var(--line)}
+.steps-list{display:flex;flex-direction:column;gap:8px}
+.tk{border:1px solid var(--line);background:var(--surface);border-radius:11px;overflow:hidden}
+.tk summary{list-style:none;cursor:pointer;display:flex;align-items:center;gap:14px;padding:15px 18px}
+.tk summary::-webkit-details-marker{display:none}
+.tk .chk{width:26px;height:26px;border-radius:8px;flex:none;display:grid;place-items:center;background:var(--amber-soft);border:1px solid color-mix(in srgb,var(--amber) 45%,transparent);color:var(--amber);font-size:11px;font-family:var(--mono);font-weight:700}
+.tk.done .chk{background:rgba(55,211,154,.13);border-color:rgba(55,211,154,.4);color:var(--ok)}
+.tk.blocked .chk{background:rgba(255,93,108,.13);border-color:rgba(255,93,108,.45);color:var(--danger)}
+.tk .ttl{font-weight:600;font-size:14.5px}
+.tk .who{margin-left:auto;font-family:var(--mono);font-size:10.5px;color:var(--ink-faint);border:1px solid var(--line-bright);padding:3px 9px;border-radius:100px;flex:none}
+.tk.blocked .who{color:var(--danger);border-color:rgba(255,93,108,.4)}
+.tk .caret{flex:none;color:var(--ink-faint);transition:.2s}
+.tk[open] .caret{transform:rotate(90deg);color:var(--amber)}
+.tk .tkbody{padding:0 18px 18px 56px;font-size:13.5px;color:var(--ink-dim);border-top:1px solid var(--line);padding-top:14px;margin-top:-2px}
+.tk .tkbody .verify{margin-top:10px;font-family:var(--mono);font-size:12px;color:var(--ink-dim);background:var(--bg);border:1px solid var(--line);border-left:2px solid var(--ok);border-radius:6px;padding:9px 12px}
+.tk .tkbody .verify b{color:var(--ok)}
+.tk.blocked .tkbody .verify{border-left-color:var(--danger)}
+.tk.blocked .tkbody .verify b{color:var(--danger)}
+
+/* config codeblock */
+.codeblock{background:#070a0e;border:1px solid var(--line);border-radius:var(--r);overflow:hidden}
+.codeblock .cbh{display:flex;align-items:center;gap:8px;padding:10px 14px;border-bottom:1px solid var(--line);background:var(--surface)}
+.codeblock .cbh .fn{font-family:var(--mono);font-size:12px;color:var(--ink-dim)}
+.codeblock .cbh .dots3{display:flex;gap:6px}
+.codeblock .cbh .dots3 i{width:9px;height:9px;border-radius:50%}
+.copy{margin-left:auto;font-family:var(--mono);font-size:11px;color:var(--ink-faint);border:1px solid var(--line-bright);background:var(--bg);padding:4px 10px;border-radius:6px;cursor:pointer;transition:.16s}
+.copy:hover{color:var(--amber);border-color:var(--amber)}
+.codeblock pre{padding:16px 18px;overflow:auto;font-family:var(--mono);font-size:12.5px;line-height:1.7;color:#cdd6e3}
+.codeblock pre .c{color:#5b6675}
+.codeblock pre .k{color:var(--amber)}
+.codeblock pre .s{color:var(--cg)}
+.codeblock pre .v{color:var(--caddy)}
+
+/* blueprint */
+details.blueprint{margin-top:18px;border:1px solid var(--line);border-radius:var(--r);background:var(--raised);overflow:hidden}
+details.blueprint summary{list-style:none;cursor:pointer;padding:13px 18px;font-family:var(--mono);font-size:12.5px;color:var(--ink-dim);display:flex;align-items:center;gap:10px}
+details.blueprint summary::-webkit-details-marker{display:none}
+details.blueprint summary .caret{transition:.2s;color:var(--ink-faint)}
+details.blueprint[open] summary .caret{transform:rotate(90deg);color:var(--amber)}
+details.blueprint .mwrap{padding:10px 18px 22px;overflow:auto}
+.mermaid{font-family:var(--body)!important;min-height:40px}
+.mermaid:not([data-processed])::before{content:"rendering diagram…";font-family:var(--mono);font-size:12px;color:var(--ink-faint)}
+
+/* operate */
+.opsgrid{display:grid;grid-template-columns:1fr 1fr;gap:14px}
+@media(max-width:760px){.opsgrid{grid-template-columns:1fr}}
+.opcard{border:1px solid var(--line);background:var(--surface);border-radius:12px;padding:16px 18px}
+.opcard .ol{font-family:var(--mono);font-size:10.5px;letter-spacing:.1em;text-transform:uppercase;color:var(--amber);margin-bottom:10px}
+.opcard .ocmd{font-family:var(--mono);font-size:12.5px;color:var(--ink);background:var(--bg);border:1px solid var(--line);border-radius:7px;padding:9px 11px;margin-bottom:9px;display:block;word-break:break-all;line-height:1.5}
+.opcard .ocmd .pr{color:var(--ink-faint)}
+.opcard .oexp{font-size:12.5px;color:var(--ink-dim);line-height:1.55}
+.opcard .oexp b{color:var(--ok)}
+.opcard .oexp code{background:var(--bg);border:1px solid var(--line);border-radius:5px;padding:1px 6px;font-size:11.5px;color:var(--ink-dim)}
+footer{border-top:1px solid var(--line);margin-top:90px;padding-top:34px;color:var(--ink-faint);font-size:13px}
+.ftnote{font-family:var(--mono);font-size:11.5px;line-height:1.9}
+.hidden{display:none}
+
+.menubtn{display:none}
+@media(max-width:920px){
+  .shell{grid-template-columns:1fr}
+  nav.side{position:fixed;left:0;top:0;width:280px;transform:translateX(-100%);transition:.3s;z-index:50;background:var(--bg)}
+  nav.side.open{transform:none;box-shadow:30px 0 60px rgba(0,0,0,.6)}
+  .menubtn{display:grid;place-items:center;position:fixed;top:16px;right:16px;z-index:60;width:46px;height:46px;border-radius:11px;background:var(--surface);border:1px solid var(--line-bright);color:var(--amber);font-size:20px;cursor:pointer}
+  main{padding-top:10px}
+  .grid2{grid-template-columns:1fr}
+  .lanerow{gap:5px}
+  .actor .al{display:none}
+}
+@media(max-width:560px){
+  .lane .actor .ab{font-size:10px}
+  .stepnum{font-size:36px}
+}
+</style>
+</head>
+<body>
+
+<button class="menubtn" id="menubtn" aria-label="menu">☰</button>
+
+<div class="shell">
+  <nav class="side" id="side">
+    <div class="brand">
+      <div class="dot"></div>
+      <div>
+        <b>Several Millers</b>
+        <span>sandbox · 003+004</span>
+      </div>
+    </div>
+    <a class="navlink active" href="#overview"><span class="num">00</span>Overview</a>
+    <a class="navlink" href="#pipeline"><span class="num">01</span>Synthetic-data pipeline</a>
+    <a class="navlink" href="#tunnel"><span class="num">02</span>No-auth + SSH tunnel</a>
+    <a class="navlink" href="#authmode"><span class="num">03</span>The auth-mode upgrade</a>
+    <a class="navlink" href="#blocked"><span class="num">04</span>Container Apps &amp; the blocker</a>
+    <a class="navlink" href="#build"><span class="num">05</span>Build checklist</a>
+    <a class="navlink" href="#operate"><span class="num">06</span>Operate &amp; verify</a>
+    <div class="meta">
+      RUNBOOK · <b>SM sandbox</b><br>
+      VM · vm-pgmcp-test<br>
+      DATA · synthetic (200 styles)<br>
+      003 · complete · 004 · Phase A<br>
+      RG · Several_Millers_Default
+    </div>
+  </nav>
+
+  <main>
+    <!-- HERO -->
+    <section id="overview" class="hero">
+      <div class="badges">
+        <span class="pill live"><span class="blip"></span>003 · interim test deploy · complete</span>
+        <span class="pill warn">004 · Phase A done · B–D blocked</span>
+        <span class="pill">synthetic data only</span>
+        <span class="pill">no real row leaves the source</span>
+      </div>
+      <h1>Several Millers sandbox:<br><span class="grad">synthetic data,</span><br>SSH tunnel, OAuth code.</h1>
+      <p class="sub">
+        Two chapters of the road to a live connector. <b>003</b> stands the server up <b>now</b> on
+        an Azure VM with <code>synthetic data</code>, <b>no auth</b>, bound to <code>127.0.0.1</code> and
+        reached only through an <code>ssh -L</code> tunnel — proving the whole stack without exposing
+        anything. <b>004</b> adds the OAuth-proxy code (the <code>AzureProvider</code> path) and plans a
+        Container Apps deploy — which got <b>blocked</b> and handed off to spec 005.
+      </p>
+
+      <div class="factgrid">
+        <div class="fact"><div class="k">VM</div><div class="v">vm-pgmcp-test<small>Ubuntu 24.04 · Standard_B2s</small></div></div>
+        <div class="fact"><div class="k">Inbound (003)</div><div class="v">SSH 22 only<small>no 5432 / 8000</small></div></div>
+        <div class="fact"><div class="k">Endpoint</div><div class="v">127.0.0.1:8000<small>no-auth · /mcp/</small></div></div>
+        <div class="fact"><div class="k">Reached via</div><div class="v">ssh -L<small>tunnel only</small></div></div>
+        <div class="fact"><div class="k">Database</div><div class="v">mg_dwh<small>centric_8_plm · 200 styles</small></div></div>
+        <div class="fact"><div class="k">DB role</div><div class="v">mcp_readonly<small>column-scoped</small></div></div>
+      </div>
+
+      <div class="scrollcue"><span class="ln"></span>SCROLL TO BEGIN THE WALKTHROUGH</div>
+    </section>
+
+    <!-- WHY TWO CHAPTERS -->
+    <section id="why">
+      <div class="eyebrow">The shape of it</div>
+      <h2 class="sec">Why these two specs go together</h2>
+      <p class="lead">003 is the <b>interim stand-in</b> for the blocked production connector — it
+        exercises the real server code against fake data, privately. 004 is the <b>auth + cloud step</b>
+        that builds on it: the code landed (Phase A), but the cloud deploy hit a permissions wall.</p>
+      <div class="grid2">
+        <div class="card" style="border-color:rgba(55,211,154,.4)">
+          <div class="eyebrow" style="color:var(--ok)">Spec 003 · complete</div>
+          <h3 style="font-family:var(--disp);font-size:18px;margin-bottom:10px">Interim test deploy</h3>
+          <ul style="list-style:none;display:flex;flex-direction:column;gap:9px;font-size:13.5px;color:var(--ink-dim)">
+            <li>✓ Synthetic dummy data of the same <i>shape</i> as real PLM rows</li>
+            <li>✓ No-auth, bound to <code>127.0.0.1</code>, reached over an SSH tunnel</li>
+            <li>✓ Column-scoped <code>mcp_readonly</code> role is still the DB backstop</li>
+            <li>✓ <code>smoke_test.py</code> drives every tool → 9/9</li>
+          </ul>
+        </div>
+        <div class="card">
+          <div class="eyebrow" style="color:var(--srv)">Spec 004 · partial</div>
+          <h3 style="font-family:var(--disp);font-size:18px;margin-bottom:10px">OAuth proxy + cloud</h3>
+          <ul style="list-style:none;display:flex;flex-direction:column;gap:9px;font-size:13.5px;color:var(--ink-dim)">
+            <li>✓ Phase A: <code>build_auth()</code> grows an <code>AzureProvider</code> path (A1–A5)</li>
+            <li>✓ Backward-compatible: no OAuth vars → 003 still works unchanged</li>
+            <li>✗ Phase B–D: Azure Container Apps deploy — <b style="color:var(--danger)">blocked</b></li>
+            <li>→ Superseded by <b>spec 005</b> (server on the VM + Caddy)</li>
+          </ul>
+        </div>
+      </div>
+    </section>
+
+    <!-- PIPELINE -->
+    <section id="pipeline">
+      <div class="eyebrow">01 · Spec 003 · data</div>
+      <h2 class="sec">The synthetic-data pipeline</h2>
+      <p class="lead">Real data is sampled <b>locally only</b> to learn value <i>shapes</i>; synthetic data
+        of the same shape is the only thing that travels to the VM. <b>Step through</b> the six stages —
+        the invariant that holds the whole way: <b>no real row ever reaches the VM</b>.</p>
+
+      <div class="stage">
+        <div class="lanes">
+          <div class="lanerow" id="lanerow">
+            <div class="lane"><div class="actor" data-a="ps" style="--ac:var(--caddy)"><div class="ab">pull_sample</div><div class="al">optional</div></div></div>
+            <div class="lane"><div class="actor" data-a="gen" style="--ac:var(--amber)"><div class="ab">generate_sql</div><div class="al">synthesize</div></div></div>
+            <div class="lane"><div class="actor" data-a="sql" style="--ac:var(--amber)"><div class="ab">load.sql</div><div class="al">artifact</div></div></div>
+            <div class="lane"><div class="actor" data-a="load" style="--ac:var(--cg)"><div class="ab">scp + psql</div><div class="al">load</div></div></div>
+            <div class="lane"><div class="actor" data-a="role" style="--ac:var(--entra)"><div class="ab">role_sql</div><div class="al">grants</div></div></div>
+            <div class="lane"><div class="actor" data-a="db" style="--ac:var(--pg)"><div class="ab">mcp_readonly</div><div class="al">on the VM</div></div></div>
+          </div>
+          <svg class="svgwrap" id="svg"><defs>
+            <marker id="ah" markerWidth="9" markerHeight="9" refX="7" refY="4.5" orient="auto">
+              <path d="M0,0 L9,4.5 L0,9 Z" fill="var(--amber)"></path>
+            </marker></defs>
+          </svg>
+        </div>
+
+        <div class="stepmeta">
+          <div class="stepnum" id="stepnum">1<small id="steptot">/ 6</small></div>
+          <div class="stepbody">
+            <h3 id="stitle">—</h3>
+            <div class="flowtag" id="sflow">—</div>
+            <p class="plain" id="splain">—</p>
+            <div class="wire">
+              <div class="wh"><span class="verb" id="sverb">CMD</span><span id="spath">—</span></div>
+              <pre id="swire">—</pre>
+            </div>
+          </div>
+        </div>
+
+        <div class="progress"><i id="prog" style="width:16.6%"></i></div>
+        <div class="controls">
+          <button class="btn" id="prev" disabled>← Prev</button>
+          <button class="btn primary" id="next">Next →</button>
+          <button class="btn" id="play">▶ Auto-play</button>
+          <div class="dots" id="dots"></div>
+        </div>
+      </div>
+
+      <div class="callout" style="margin-top:18px"><b>Built straight from <code>policy.yaml</code>.</b>
+        The generator reads the whitelist, so the SQL can <i>never</i> contain a non-whitelisted column.
+        All 5 tables are generated and the reference columns are wired together (e.g. a style's
+        <code>collection</code> matches a real collection name) so both query templates and the open-query
+        path have rows to return. <code>scripts/sample_data/</code> and the generated <code>.sql</code> are git-ignored.</div>
+    </section>
+
+    <!-- TUNNEL -->
+    <section id="tunnel">
+      <div class="eyebrow">02 · Spec 003 · topology</div>
+      <h2 class="sec">No-auth, behind an SSH tunnel</h2>
+      <p class="lead">An unauthenticated DB-query endpoint must never be public. So the server binds
+        <code>127.0.0.1:8000</code>, the VM opens <b>SSH (22) only</b>, and the only way to reach the
+        endpoint is to forward the port over SSH. <b>Click a node</b> to inspect it.</p>
+
+      <div class="arch">
+        <div class="archmap">
+          <div class="zone">Operator laptop</div>
+          <button class="node sel" style="--nc:var(--caddy)" data-node="laptop">
+            <span class="ic">⌂</span>
+            <span><span class="nt">Local scripts + client</span><br><span class="ns">pull_sample · generate_sql · smoke_test</span></span>
+          </button>
+          <div class="flowarrow"><span class="l"></span>ssh -L 8000:127.0.0.1:8000<span class="l"></span></div>
+          <div class="vmbox">
+            <span class="vmtag">AZURE VM · vm-pgmcp-test · SSH 22 ONLY</span>
+            <button class="node" style="--nc:var(--srv)" data-node="srv">
+              <span class="ic">PX</span>
+              <span><span class="nt">pg-mcp-server</span> · :8000<br><span class="ns">no-auth · bound to 127.0.0.1</span></span>
+            </button>
+            <div class="flowarrow"><span class="l"></span>localhost · read-only<span class="l"></span></div>
+            <button class="node" style="--nc:var(--pg)" data-node="pg">
+              <span class="ic">DB</span>
+              <span><span class="nt">PostgreSQL</span><br><span class="ns">mg_dwh · mcp_readonly</span></span>
+            </button>
+          </div>
+          <div class="flowarrow" style="margin-top:14px"><span class="l"></span>NSG inbound<span class="l"></span></div>
+          <button class="node" style="--nc:var(--danger)" data-node="nsg">
+            <span class="ic">⛔</span>
+            <span><span class="nt">NSG · vm-pgmcp-test-nsg</span><br><span class="ns">allow 22 · deny 5432 / 8000</span></span>
+          </button>
+        </div>
+        <div class="archdetail card" id="archdetail"></div>
+      </div>
+
+      <details class="blueprint">
+        <summary><span class="caret">▸</span> Static blueprint — synthetic → tunnel topology (Mermaid, MCP-validated)</summary>
+        <div class="mwrap">
+          <pre class="mermaid">
+graph LR
+  subgraph LOCAL["Operator laptop / source-reachable host"]
+    PS["pull_sample.py<br/>read-only sample (LOCAL ONLY)"]
+    GEN["generate_synthetic_sql.py<br/>fake rows, whitelisted cols"]
+  end
+  SQL["synthetic_load.sql"]
+  subgraph VM["Azure VM - vm-pgmcp-test (SSH 22 only)"]
+    PG[("PostgreSQL<br/>mg_dwh / centric_8_plm")]
+    SRV["pg-mcp-server<br/>no-auth - 127.0.0.1:8000"]
+  end
+  CLIENT["smoke_test.py / MCP inspector"]
+  PS -. "learn shapes" .-> GEN
+  GEN --> SQL
+  SQL -- "scp + psql -f" --> PG
+  SRV -- "mcp_readonly read-only" --> PG
+  CLIENT -- "ssh -L 8000:127.0.0.1:8000" --> SRV
+          </pre>
+        </div>
+      </details>
+    </section>
+
+    <!-- AUTH MODE -->
+    <section id="authmode">
+      <div class="eyebrow">03 · Spec 004 · Phase A</div>
+      <h2 class="sec">The auth-mode upgrade</h2>
+      <p class="lead">Phase A taught the server three ways to authenticate — picked at startup by
+        <code>build_auth()</code>, purely from which environment variables are set. <b>Toggle the env-var
+        groups</b> and watch the exact branch fire. This is why 003's no-auth run and 004/005's OAuth
+        run are the <i>same code</i>.</p>
+
+      <div class="authwrap">
+        <div class="toggles">
+          <button class="toggle" id="tgProxy">
+            <span class="sw"></span>
+            <span><span class="tl">Azure-proxy vars set</span>
+              <span class="tv">FastMCP AzureProvider (OAuth proxy)</span>
+              <span class="varchips">
+                <span class="vc">PGMCP_OAUTH_CLIENT_ID</span><span class="vc">…_CLIENT_SECRET</span>
+                <span class="vc">…_TENANT_ID</span><span class="vc">…_BASE_URL</span>
+              </span>
+            </span>
+          </button>
+          <button class="toggle" id="tgToken">
+            <span class="sw"></span>
+            <span><span class="tl">Token-validation vars set</span>
+              <span class="tv">JWTVerifier (resource server)</span>
+              <span class="varchips">
+                <span class="vc">PGMCP_OAUTH_ISSUER_URL</span><span class="vc">…_JWKS_URI</span><span class="vc">…_AUDIENCE</span>
+              </span>
+            </span>
+          </button>
+          <div class="callout" style="font-size:12.5px;padding:13px 15px">Proxy vars win when both are set — they're checked first in <code>build_auth()</code>. Set neither for local dev.</div>
+        </div>
+
+        <div>
+          <div class="authcode">
+            <div class="cbh">auth.py · build_auth(settings)</div>
+            <pre><span class="kw">def</span> <span class="fn">build_auth</span>(settings) -> AuthProvider | <span class="kw">None</span>:
+<span class="br" data-br="a">    <span class="kw">if</span> (client_id <span class="kw">and</span> client_secret <span class="kw">and</span> tenant_id <span class="kw">and</span> base_url):
+        log.info(<span class="st">"OAuth enabled (Azure proxy, base_url=…)"</span>)
+        <span class="kw">return</span> <span class="fn">AzureProvider</span>(…)        <span class="cm"># DCR/CIMD + PKCE</span></span>
+<span class="br" data-br="b">    <span class="kw">if</span> (issuer_url <span class="kw">and</span> jwks_uri <span class="kw">and</span> audience):
+        log.info(<span class="st">"OAuth enabled (token validation, issuer=…)"</span>)
+        <span class="kw">return</span> <span class="fn">JWTVerifier</span>(…)          <span class="cm"># validate bearer JWTs</span></span>
+<span class="br danger" data-br="c">    log.warning(<span class="st">"running WITHOUT authentication (local dev only)"</span>)
+    <span class="kw">return</span> <span class="kw">None</span></span></pre>
+          </div>
+          <div class="authres" id="authres"></div>
+        </div>
+      </div>
+    </section>
+
+    <!-- BLOCKED -->
+    <section id="blocked">
+      <div class="eyebrow">04 · Spec 004 · Phase B–D</div>
+      <h2 class="sec">The Container Apps plan — and the wall</h2>
+      <p class="lead">Phase A's code targeted <b>Azure Container Apps</b> (to mirror the client's own
+        architecture). The intended topology was fully specified — then a single subscription-level
+        permission stopped it cold.</p>
+
+      <div class="tools" style="margin-bottom:18px">
+        <div class="tool"><div class="sig">ACR + az acr build</div><div class="td">Build <code>pg-mcp-server:latest</code> server-side (no local Docker); pull via the ACR admin user.</div></div>
+        <div class="tool"><div class="sig">/27 delegated subnet</div><div class="td"><code>aca-infra</code> delegated to <code>Microsoft.App/environments</code>; NSG opens VM <code>5432</code> to that CIDR.</div></div>
+        <div class="tool"><div class="sig">ACA env · External ingress</div><div class="td">VNet-integrated workload-profiles env, target port <code>8000</code>, public HTTPS so ChatGPT can reach it.</div></div>
+        <div class="tool"><div class="sig">Key Vault · access-policy</div><div class="td">DB URL + client secret in the vault; the app's <b>system-assigned managed identity</b> gets <i>Get</i> via an access policy.</div></div>
+        <div class="tool"><div class="sig">Postgres opens to the VNet</div><div class="td"><code>listen_addresses</code> + <code>pg_hba</code> for the ACA subnet; the VM gets a static private IP.</div></div>
+        <div class="tool"><div class="sig">Single Entra app</div><div class="td"><code>api://&lt;id&gt;</code> + scope <code>pg.read</code>, manifest v2, client secret, redirect <code>/auth/callback</code>; DCR/CIMD + PKCE.</div></div>
+      </div>
+
+      <div class="callout warn"><b>The blocker.</b> Azure Container Apps requires the
+        <code>Microsoft.App</code> resource provider to be registered on the subscription — a
+        <b>subscription-level action</b>. The operator is <b>Contributor on resource group
+        <code>Several_Millers_Default</code> only</b>, so it could not be registered and the environment
+        could not be created. Phases B–D never deployed.</div>
+
+      <div class="callout" style="margin-top:14px"><b>→ Superseded by spec 005.</b> The same Phase-A
+        <code>AzureProvider</code> code was instead run <b>directly on the VM</b>, fronted by
+        <b>Caddy</b> for automatic HTTPS — no provider registration, no VNet, Postgres stays on localhost.
+        See the spec-005 guide.</div>
+
+      <details class="blueprint">
+        <summary><span class="caret">▸</span> Static blueprint — the blocked Container Apps topology (Mermaid, MCP-validated)</summary>
+        <div class="mwrap">
+          <pre class="mermaid">
+graph LR
+  CG["ChatGPT Business<br/>OAuth (discovered)"]
+  subgraph ACA["Azure Container Apps - BLOCKED"]
+    APP["pg-mcp-server<br/>AzureProvider - :8000"]
+  end
+  ENTRA["Microsoft Entra ID<br/>one app registration"]
+  KV["Key Vault<br/>secrets via managed identity"]
+  subgraph VM["Postgres VM"]
+    PG[("PostgreSQL :5432")]
+  end
+  BLOCK["BLOCKER: Microsoft.App provider<br/>needs subscription-level registration"]
+  CG -- "DCR/CIMD + PKCE" --> APP
+  APP -- "VNet - NSG 5432" --> PG
+  APP -- "proxy login" --> ENTRA
+  APP -. "managed identity" .-> KV
+  BLOCK -. blocks .-> APP
+          </pre>
+        </div>
+      </details>
+    </section>
+
+    <!-- BUILD -->
+    <section id="build">
+      <div class="eyebrow">05 · Step by step</div>
+      <h2 class="sec">The build, end to end</h2>
+      <p class="lead">Every step across both specs, grouped. <b>Done</b> steps carry a teal check;
+        the <b style="color:var(--danger)">blocked</b> Container Apps steps are marked in red.
+        <b>Expand</b> any step for the command and how to verify it.</p>
+      <div id="tasklist"></div>
+    </section>
+
+    <!-- OPERATE -->
+    <section id="operate">
+      <div class="eyebrow">06 · Day-two</div>
+      <h2 class="sec">Operate &amp; verify</h2>
+      <p class="lead">How to confirm the test deploy is healthy and exercise it. Service commands run on
+        the VM; the smoke test and tunnel run from your laptop.</p>
+      <div class="opsgrid">
+        <div class="opcard">
+          <div class="ol">End-to-end smoke test</div>
+          <code class="ocmd"><span class="pr">$ </span>uv run python scripts/smoke_test.py --url http://127.0.0.1:8000/mcp/</code>
+          <div class="oexp">Drives every tool. Expect <b>9/9 checks passed</b> and exit 0.</div>
+        </div>
+        <div class="opcard">
+          <div class="ol">No-auth startup log</div>
+          <code class="ocmd"><span class="pr">$ </span>uv run python main.py</code>
+          <div class="oexp">Logs <b>running WITHOUT authentication</b>, <b>database pool opened</b>, <b>policy validated against DB: 5 tables, 2 templates</b>, then <b>Uvicorn running on http://127.0.0.1:8000</b>.</div>
+        </div>
+        <div class="opcard">
+          <div class="ol">Reach it from a laptop</div>
+          <code class="ocmd"><span class="pr">$ </span>ssh -L 8000:127.0.0.1:8000 azureuser@&lt;vm&gt;</code>
+          <div class="oexp">Then point the client at <code>http://127.0.0.1:8000/mcp/</code> — the only way in.</div>
+        </div>
+        <div class="opcard">
+          <div class="ol">Role is read-only</div>
+          <code class="ocmd"><span class="pr">$ </span>psql -U mcp_readonly -d mg_dwh -c "INSERT INTO centric_8_plm.styles(id) VALUES ('x')"</code>
+          <div class="oexp">Fails: <b>cannot execute INSERT in a read-only transaction</b>. SELECT of whitelisted columns works.</div>
+        </div>
+        <div class="opcard">
+          <div class="ol">Flip on OAuth (004 path)</div>
+          <code class="ocmd"><span class="pr"># </span>set the 4 PGMCP_OAUTH_* proxy vars → restart</code>
+          <div class="oexp">Log changes to <b>OAuth enabled (Azure proxy, base_url=…)</b>; <code>curl -i .../mcp/</code> with no token → <b>401</b>.</div>
+        </div>
+        <div class="opcard">
+          <div class="ol">Regenerate fixtures</div>
+          <code class="ocmd"><span class="pr">$ </span>uv run python scripts/generate_synthetic_sql.py &gt; scripts/synthetic_load.sql</code>
+          <div class="oexp">stderr prints <b>Generated rows: …</b> + sample style codes; the <code>.sql</code> is git-ignored.</div>
+        </div>
+      </div>
+      <div class="callout" style="margin-top:18px"><b>Reminder:</b> 003 is an interim stand-in — synthetic
+        data only, never internet-facing. To test <i>with</i> auth, set the <code>PGMCP_OAUTH_*</code> vars
+        against your own tenant (the 004 path), or move to the spec-005 VM + Caddy deploy for the real
+        ChatGPT connector.</div>
+    </section>
+
+    <footer>
+      <div class="eyebrow">Reference</div>
+      <p style="color:var(--ink-dim);font-size:14.5px;max-width:66ch;margin-bottom:20px">This guide covers the
+        interim test deploy (spec 003) and the OAuth-proxy code + blocked cloud plan (spec 004). The build
+        steps in section 05 are the runbook; section 06 is day-two operation. The blocked Container Apps
+        path was superseded by spec 005 (server on the VM + Caddy).</p>
+      <div class="ftnote">
+        SOURCE · specs/003-several-millers-test-deploy.md · specs/004-chatgpt-business-oauth-connector.md<br>
+        BUILT ON · spec 001 (the server: policy.yaml, main.py, auth.py, config.py)<br>
+        SUPERSEDED BY · spec 005 (ChatGPT Business connector — VM + Caddy)<br>
+        Interactive implementation guide — pg-mcp-server.
+      </div>
+    </footer>
+  </main>
+</div>
+
+<script>
+/* ── data: pipeline stages ── */
+const STEPS = [
+  {t:'Pull a real sample — locally, read-only (optional)',from:'ps',to:'gen',verb:'SCRIPT',
+    path:'scripts/pull_sample.py  (where the source is reachable)',
+    plain:'Connect to the source DB read-only and learn the SHAPE of values — types, lengths, formats — for whitelisted columns only. The real sample is written under git-ignored scripts/sample_data/ and never ships to the VM. This step is optional; skip it and the generator uses sensible defaults.',
+    wire:'PGMCP_SOURCE_DSN=\'postgresql://reader:***@<src>:5432/mg_dwh?sslmode=require\' \\\n  uv run python scripts/pull_sample.py --rows 25\n\n→ scripts/sample_data/schema_types.json  + sample_<table>.json   (LOCAL ONLY)'},
+  {t:'Generate synthetic SQL from the whitelist',from:'gen',to:'sql',verb:'SCRIPT',
+    path:'scripts/generate_synthetic_sql.py',
+    plain:'Read policy.yaml and emit portable SQL with fake values of the same shape — whitelisted columns ONLY, so it can never include a sensitive field. All 5 tables are generated and reference columns are wired together so both query templates return rows. Defaults: styles=200, collections=16, seasons=4, category1s=8, category2s=24.',
+    wire:'uv run python scripts/generate_synthetic_sql.py \\\n  --types scripts/sample_data/schema_types.json > scripts/synthetic_load.sql\n\nstderr: Generated rows: styles=200 … ; sample codes: AW-71001-001-001 …'},
+  {t:'The portable artifact: synthetic_load.sql',from:'sql',to:'load',verb:'FILE',
+    path:'scripts/synthetic_load.sql  (git-ignored)',
+    plain:'A self-contained SQL file — the only thing that travels to the VM. It begins by creating the schema and every whitelisted table, then inserts the synthetic rows. No real values, no non-whitelisted columns.',
+    wire:'CREATE SCHEMA IF NOT EXISTS centric_8_plm;\nCREATE TABLE centric_8_plm.styles ( … whitelisted columns only … );\nINSERT INTO centric_8_plm.styles ( … ) VALUES ( … );   -- 200 rows\n…  (collections, seasons, category1s, category2s)'},
+  {t:'Ship + load it onto the VM',from:'load',to:'role',verb:'CMD',
+    path:'scp  →  psql -f',
+    plain:'Copy the SQL to the VM and load it into mg_dwh.centric_8_plm. All five whitelisted tables are created and populated. Stop on the first error so a bad fixture fails loudly.',
+    wire:'scp scripts/synthetic_load.sql <user>@<vm>:/tmp/\n\n# on the VM:\nsudo -u postgres psql -d mg_dwh -v ON_ERROR_STOP=1 -f /tmp/synthetic_load.sql\n→ SELECT count(*) FROM centric_8_plm.styles;  → 200'},
+  {t:'Generate the column-scoped role SQL',from:'role',to:'db',verb:'SCRIPT',
+    path:'scripts/generate_role_sql.py  (reused from spec 001)',
+    plain:'Emit the least-privilege role straight from policy.yaml: column-level GRANT SELECT per whitelisted table — never a table-level grant — plus default_transaction_read_only. Replace CHANGE_ME with a strong password before applying.',
+    wire:'uv run python scripts/generate_role_sql.py > sql/role_setup.sql\n# replace CHANGE_ME, scp over, then:\nsudo -u postgres psql -d mg_dwh -v ON_ERROR_STOP=1 -f /tmp/role_setup.sql'},
+  {t:'mcp_readonly — the DB backstop is live',from:'db',to:'db',verb:'RESULT',
+    path:'role mcp_readonly on mg_dwh',
+    plain:'The server connects as mcp_readonly. It can SELECT whitelisted columns and nothing else; any write fails at the database regardless of what the application does. Synthetic data does not relax this — the spec-001 column-level role is in force here too.',
+    wire:'SELECT code FROM centric_8_plm.styles LIMIT 1;   → ok\nINSERT INTO centric_8_plm.styles(id) VALUES (\'x\');\n→ ERROR: cannot execute INSERT in a read-only transaction'}
+];
+
+/* ── data: tunnel arch nodes ── */
+const ARCH = {
+  laptop:{c:'var(--caddy)',ic:'⌂',t:'Operator laptop',sub:'local scripts + MCP client',
+    rows:[['pull_sample','read-only, local only'],['generate_sql','offline synthesis'],['smoke_test','drives every tool'],['Reaches VM via','ssh -L 8000:127.0.0.1:8000']],
+    note:'Everything that touches real data runs here, read-only, and stays here. The endpoint is reached only by forwarding port 8000 over SSH — there is no public route to it.'},
+  srv:{c:'var(--srv)',ic:'PX',t:'pg-mcp-server',sub:'no-auth · 127.0.0.1:8000',
+    rows:[['Bind','127.0.0.1:8000'],['Auth','none (build_auth → None)'],['Transport','Streamable HTTP /mcp/'],['Run','uv run python main.py']],
+    note:'The same server code as 004/005, started with all PGMCP_OAUTH_* blank so build_auth() returns None. Because it is unauthenticated it must never bind a public interface — only localhost.'},
+  pg:{c:'var(--pg)',ic:'DB',t:'PostgreSQL',sub:'mg_dwh · centric_8_plm',
+    rows:[['Reachable on','127.0.0.1:5432 (VM only)'],['Data','synthetic · 200 styles'],['Role','mcp_readonly'],['Grants','column-level SELECT']],
+    note:'Installed on the VM (apt or a postgres:16 container). Loaded only with synthetic rows. The mcp_readonly role is the real backstop — writes fail in a read-only transaction.'},
+  nsg:{c:'var(--danger)',ic:'⛔',t:'NSG · vm-pgmcp-test-nsg',sub:'SSH 22 only',
+    rows:[['Allow inbound','TCP 22 (SSH)'],['5432','never exposed'],['8000','never exposed'],['Optional','restrict 22 to your IP']],
+    note:'The network boundary that makes no-auth safe. Only SSH is open; Postgres (5432) and the MCP endpoint (8000) are unreachable from the internet — they are reached only through the SSH tunnel.'}
+};
+
+/* ── data: checklist ── */
+const GROUPS = [
+  {h:'Spec 003 · repo-side', tasks:[
+    {s:'done',n:'A',who:'code',t:'Add the three scripts',b:'generate_synthetic_sql.py, pull_sample.py, smoke_test.py — read policy.yaml/models.py for table+column structure; generator emits whitelisted columns only; sample puller sets the connection read-only; smoke test drives every tool.',v:'ruff + mypy clean on all three scripts.'},
+    {s:'done',n:'B',who:'config',t:'Git-ignore real samples + generated SQL',b:'Add pg-mcp-server/scripts/sample_data/ and pg-mcp-server/scripts/synthetic_load.sql to .gitignore.',v:'git status shows neither path as untracked after running the scripts.'},
+  ]},
+  {h:'Spec 003 · operator runbook', tasks:[
+    {s:'skip',n:'1',who:'laptop',t:'Pull a real sample (optional — skipped)',b:'Run where the source DB is reachable read-only; real values stay local + git-ignored. Skipped in the as-built run.',v:'sample_data/schema_types.json + sample_<table>.json exist; no write ever issued to the source.'},
+    {s:'done',n:'2',who:'laptop',t:'Synthetic SQL ready',b:'generate_synthetic_sql.py → synthetic_load.sql (200 styles). Tune volume with --styles/--collections/…',v:'stderr prints "Generated rows: …"; the .sql starts CREATE SCHEMA IF NOT EXISTS centric_8_plm; and contains only whitelisted columns.'},
+    {s:'done',n:'3',who:'Azure',t:'Provision the Ubuntu VM',b:'RG Several_Millers_Default → Ubuntu 24.04 LTS (vm-pgmcp-test, Standard_B2s), SSH public-key auth (azureuser), inbound SSH (22) only.',v:'VM Running with a public IP; ssh azureuser@<ip> lands a shell.'},
+    {s:'done',n:'4',who:'VM',t:'Provision Postgres + create the DB',b:'sudo apt-get install -y postgresql; sudo -u postgres createdb mg_dwh. (Docker alt: postgres:16.)',v:'sudo -u postgres psql -d mg_dwh -c \'\\conninfo\' connects.'},
+    {s:'done',n:'5',who:'VM',t:'Transfer + load the synthetic SQL',b:'scp synthetic_load.sql to the VM; psql -d mg_dwh -v ON_ERROR_STOP=1 -f /tmp/synthetic_load.sql.',v:'SELECT count(*) FROM centric_8_plm.styles; returns 200.'},
+    {s:'done',n:'6',who:'VM',t:'Create the column-scoped role',b:'generate_role_sql.py > sql/role_setup.sql, replace CHANGE_ME, scp, psql -f.',v:'as mcp_readonly, SELECT works but INSERT fails with "cannot execute INSERT in a read-only transaction".'},
+    {s:'done',n:'7',who:'VM',t:'Install + configure the server',b:'Copy pg-mcp-server/ to the VM, uv sync, .env: PGMCP_DATABASE_URL (mcp_readonly@127.0.0.1/mg_dwh), PGMCP_HOST=127.0.0.1, all three PGMCP_OAUTH_* blank.',v:'uv run python -c "from config import get_settings; get_settings()" loads with no error.'},
+    {s:'done',n:'8',who:'VM',t:'Run the server (no-auth, localhost)',b:'uv run python main.py (or nohup / a systemd unit to keep it up).',v:'log shows "running WITHOUT authentication", "database pool opened", "policy validated against DB: 5 tables, 2 templates", "Uvicorn running on http://127.0.0.1:8000".'},
+    {s:'done',n:'9',who:'VM',t:'Smoke-test end to end',b:'smoke_test.py --url http://127.0.0.1:8000/mcp/. From a laptop, tunnel first with ssh -L.',v:'prints "9/9 checks passed" and exits 0.'},
+  ]},
+  {h:'Spec 004 · Phase A — server code (done, locally)', tasks:[
+    {s:'done',n:'A1',who:'code',t:'Config vars',b:'config.py: oauth_client_id/secret/tenant_id/base_url (all str|None=None), oauth_identifier_uri + oauth_jwt_signing_key (optional). Kept oauth_required_scopes (default ["pg.read"]).',v:'imports clean; mypy clean.'},
+    {s:'done',n:'A2',who:'code',t:'build_auth() branch',b:'auth.py: returns AzureProvider when client_id+secret+tenant_id+base_url are set (logs "OAuth enabled (Azure proxy, base_url=…)"); else JWTVerifier / None. Return type AuthProvider | None.',v:'returns AzureProvider with proxy vars set.'},
+    {s:'done',n:'A3',who:'code',t:'Tests',b:'tests/test_auth.py: proxy vars → AzureProvider; proxy precedence over token vars; token vars → JWTVerifier; none → None.',v:'4/4 pass; full suite 41 passed/1 skipped; ruff + mypy clean.'},
+    {s:'done',n:'A4',who:'code',t:'Sample + docs',b:'.env.example documents both OAuth modes (proxy + token-only) with every new PGMCP_OAUTH_* var.',v:'.env.example covers all new vars.'},
+    {s:'done',n:'A5',who:'code',t:'Local smoke of discovery (offline)',b:'Built FastMCP(auth=AzureProvider(...)) and enumerated the ASGI routes.',v:'/.well-known/oauth-protected-resource/mcp, …/oauth-authorization-server, /register, /authorize, /token, /auth/callback all mounted.'},
+  ]},
+  {h:'Spec 004 · Phase B–D — cloud (planned · Container Apps blocked)', tasks:[
+    {s:'done',n:'B1',who:'Azure',t:'VM Postgres + synthetic data + role',b:'Done via spec 003 (200 styles; role read-only).',v:'reused from spec 003.'},
+    {s:'blocked',n:'B1b',who:'VM',t:'Open Postgres to the VNet',b:'Would set listen_addresses + pg_hba for the ACA subnet CIDR and give the VM a static private IP. Not needed once spec 005 kept Postgres on localhost.',v:'(planned) psql -h <VM_PRIVATE_IP> -U mcp_readonly works from the VM.'},
+    {s:'blocked',n:'B2',who:'Azure',t:'ACR + build image',b:'Create a Basic Container Registry; az acr build -r <ACR> -t pg-mcp-server:latest .',v:'(planned) repository shows pg-mcp-server:latest.'},
+    {s:'blocked',n:'B3',who:'Azure',t:'Delegated subnet + NSG',b:'aca-infra /27 delegated to Microsoft.App/environments; NSG inbound allow that CIDR → VM 5432.',v:'(planned) subnet shows the delegation; NSG lists the rule.'},
+    {s:'blocked',n:'B4',who:'Azure',t:'Container Apps Environment',b:'Workload-profiles env, your VNet + aca-infra, Virtual IP = External. BLOCKED: needs the Microsoft.App provider registered (subscription-level) — operator is RG Contributor only.',v:'(blocked) env could not provision.'},
+    {s:'blocked',n:'B5',who:'Azure',t:'Container App + secrets + env vars',b:'App from ACR (admin-user pull), target port 8000, system-assigned MI on; Key Vault access-policy secrets; PGMCP_OAUTH_* env. Depends on B4.',v:'(planned) revision Running; log "OAuth enabled"; curl /mcp/ → 401.'},
+    {s:'done',n:'C1',who:'Entra',t:'Register the single app + scope + redirect',b:'Expose-an-API api://<id> → scope pg.read; manifest requestedAccessTokenVersion=2; client secret; redirect https://<host>/auth/callback. (Reused as-is by spec 005.)',v:'manifest shows v2 + the pg.read scope; consent granted.'},
+    {s:'blocked',n:'D1',who:'ChatGPT',t:'Create + test the connector (on ACA host)',b:'Developer mode → Create → Server URL https://<APP_HOST>/mcp, OAuth (discovered). Blocked because there was no ACA host. Done instead on the spec-005 Caddy host.',v:'(planned) ChatGPT lists all 5 tools; queries return synthetic rows.'},
+    {s:'blocked',n:'D2',who:'ChatGPT',t:'Publish for the workspace',b:'Workspace Settings → Apps → Drafts → Publish. (Immutable after publish — recreate to change.)',v:'(planned) members see the connector.'},
+  ]},
+];
+
+/* ── render: pipeline stepper ── */
+let cur=0, playing=false, timer=null;
+const svg=document.getElementById('svg'), lanerow=document.getElementById('lanerow'), dotsEl=document.getElementById('dots');
+STEPS.forEach((_,i)=>{const d=document.createElement('i'); d.dataset.i=i; if(i===0)d.classList.add('on'); d.addEventListener('click',()=>go(i)); dotsEl.appendChild(d);});
+document.getElementById('steptot').textContent='/ '+STEPS.length;
+const labelOf=a=>({ps:'pull_sample',gen:'generate_sql',sql:'load.sql',load:'scp + psql',role:'role_sql',db:'mcp_readonly'}[a]);
+function actorEl(a){return lanerow.querySelector(`.actor[data-a="${a}"]`);}
+function drawArrow(){
+  svg.querySelectorAll('path.flow,circle.packet').forEach(e=>e.remove());
+  const s=STEPS[cur]; if(s.from===s.to)return;
+  const wrap=svg.getBoundingClientRect();
+  const from=actorEl(s.from).getBoundingClientRect(), to=actorEl(s.to).getBoundingClientRect();
+  const y=from.bottom-wrap.top+16;
+  const x1=from.left+from.width/2-wrap.left, x2=to.left+to.width/2-wrap.left;
+  const dip=26;
+  const d=`M ${x1} ${from.bottom-wrap.top-4} C ${x1} ${y+dip}, ${x2} ${y+dip}, ${x2} ${to.bottom-wrap.top-4}`;
+  const p=document.createElementNS('http://www.w3.org/2000/svg','path');
+  p.setAttribute('d',d); p.setAttribute('class','flow'); p.setAttribute('fill','none');
+  p.setAttribute('stroke','var(--amber)'); p.setAttribute('stroke-width','2');
+  p.setAttribute('marker-end','url(#ah)'); p.setAttribute('stroke-dasharray','6 5');
+  svg.appendChild(p);
+  const len=p.getTotalLength(); p.style.strokeDashoffset=len; p.style.transition='stroke-dashoffset .6s ease';
+  requestAnimationFrame(()=>{p.style.strokeDashoffset=0;});
+  const c=document.createElementNS('http://www.w3.org/2000/svg','circle');
+  c.setAttribute('r','4.5'); c.setAttribute('class','packet'); svg.appendChild(c);
+  const t0=performance.now(), dur=650;
+  function move(t){const k=Math.min(1,(t-t0)/dur); const pt=p.getPointAtLength(len*k); c.setAttribute('cx',pt.x); c.setAttribute('cy',pt.y); if(k<1)requestAnimationFrame(move); else c.remove();}
+  requestAnimationFrame(move);
+}
+function render(){
+  const s=STEPS[cur];
+  lanerow.querySelectorAll('.actor').forEach(a=>{a.classList.remove('on'); a.classList.add('dim');});
+  [s.from,s.to].forEach(a=>{const el=actorEl(a); if(el){el.classList.add('on'); el.classList.remove('dim');}});
+  document.getElementById('stepnum').firstChild.textContent=cur+1;
+  document.getElementById('stitle').textContent=s.t;
+  document.getElementById('sflow').innerHTML = s.from===s.to
+    ? `<b style="--ac1:var(--${s.from})">${labelOf(s.from)}</b>`
+    : `<b style="--ac1:var(--${s.from})">${labelOf(s.from)}</b> → <b style="--ac1:var(--${s.to})">${labelOf(s.to)}</b>`;
+  document.getElementById('splain').textContent=s.plain;
+  document.getElementById('sverb').textContent=s.verb;
+  document.getElementById('spath').textContent=s.path;
+  document.getElementById('swire').textContent=s.wire;
+  document.getElementById('prev').disabled=cur===0;
+  document.getElementById('prog').style.width=((cur+1)/STEPS.length*100)+'%';
+  dotsEl.querySelectorAll('i').forEach((d,i)=>{d.classList.toggle('on',i===cur); d.classList.toggle('done',i<cur);});
+  drawArrow();
+}
+function go(i){cur=(i+STEPS.length)%STEPS.length; render();}
+document.getElementById('next').addEventListener('click',()=>go(cur+1));
+document.getElementById('prev').addEventListener('click',()=>go(cur-1));
+const playBtn=document.getElementById('play');
+playBtn.addEventListener('click',()=>{playing=!playing; playBtn.textContent=playing?'⏸ Pause':'▶ Auto-play'; playBtn.classList.toggle('primary',playing);
+  if(playing)timer=setInterval(()=>{cur=(cur+1)%STEPS.length; render();},2600); else clearInterval(timer);});
+render();
+window.addEventListener('resize',()=>{clearTimeout(window._rz); window._rz=setTimeout(drawArrow,120);});
+
+/* ── render: tunnel arch ── */
+const archDetail=document.getElementById('archdetail');
+function renderArch(key){
+  const a=ARCH[key];
+  archDetail.style.setProperty('--dc',a.c);
+  archDetail.innerHTML=
+    `<div class="dhead"><div class="dic" style="--dc:${a.c}">${a.ic}</div>
+       <div><h3>${a.t}</h3><div class="dsub" style="--dc:${a.c}">${a.sub}</div></div></div>`
+    + a.rows.map(r=>`<div class="krow"><span class="kk">${r[0]}</span><span class="kv">${r[1]}</span></div>`).join('')
+    + `<div class="dnote">${a.note}</div>`;
+}
+document.querySelectorAll('.node').forEach(n=>n.addEventListener('click',()=>{
+  document.querySelectorAll('.node').forEach(x=>x.classList.remove('sel')); n.classList.add('sel'); renderArch(n.dataset.node);
+}));
+renderArch('laptop');
+
+/* ── render: auth-mode selector ── */
+const tgProxy=document.getElementById('tgProxy'), tgToken=document.getElementById('tgToken'), authres=document.getElementById('authres');
+let proxyOn=false, tokenOn=false;
+const AUTHRES={
+  A:{cls:'A',rt:'→ AzureProvider',log:'INFO  OAuth enabled (Azure proxy, base_url=https://…)',
+     meta:'Publishes the full OAuth surface: <b>/.well-known/oauth-protected-resource/mcp</b>, <b>…/oauth-authorization-server</b>, <b>/register</b>, <b>/authorize</b>, <b>/token</b>, <b>/auth/callback</b>, JWKS. Speaks DCR/CIMD + PKCE to ChatGPT and proxies login to one Entra app.',used:'used by spec 004 / 005'},
+  B:{cls:'B',rt:'→ JWTVerifier',log:'INFO  OAuth enabled (token validation, issuer=https://login.microsoftonline.com/…/v2.0)',
+     meta:'A pure <b>resource server</b>: validates incoming bearer JWTs against issuer / JWKS / audience and required scope. <b>No discovery or registration endpoints</b> — the client must already hold a token.',used:'the spec-002 production path'},
+  C:{cls:'C',rt:'→ None  (no authentication)',log:'WARNING  running WITHOUT authentication (local dev only)',
+     meta:'No auth provider. Only the <b>read-only DB role</b> and the <b>whitelist</b> protect data. Must bind to <code>127.0.0.1</code> and be reached over an SSH tunnel — never public.',used:'used by spec 003'}
+};
+function renderAuth(){
+  const mode = proxyOn ? 'A' : (tokenOn ? 'B' : 'C');
+  tgProxy.classList.toggle('on',proxyOn); tgToken.classList.toggle('on',tokenOn);
+  document.querySelectorAll('.authcode .br').forEach(b=>b.classList.remove('active'));
+  document.querySelector(`.authcode .br[data-br="${mode.toLowerCase()}"]`).classList.add('active');
+  const r=AUTHRES[mode];
+  authres.className='authres '+r.cls;
+  authres.innerHTML=`<div class="rt" style="color:${mode==='A'?'var(--amber)':mode==='B'?'var(--caddy)':'var(--danger)'}">${r.rt}</div>
+    <div class="rlog">${r.log}</div><div class="rmeta">${r.meta}</div><span class="usedby">${r.used}</span>`;
+}
+tgProxy.addEventListener('click',()=>{proxyOn=!proxyOn; renderAuth();});
+tgToken.addEventListener('click',()=>{tokenOn=!tokenOn; renderAuth();});
+renderAuth();
+
+/* ── render: checklist ── */
+const ICON={done:'✓',skip:'–',blocked:'✕'};
+document.getElementById('tasklist').innerHTML = GROUPS.map(g=>
+  `<div class="grouphead">${g.h}</div><div class="steps-list">`
+  + g.tasks.map(t=>{
+      const cls = t.s==='blocked'?'blocked':(t.s==='done'?'done':'');
+      return `<details class="tk ${cls}"><summary>
+        <span class="chk">${t.s==='done'?'✓':(t.s==='blocked'?'✕':t.n)}</span><span class="ttl">${t.n} · ${t.t}</span>
+        <span class="who">${t.who}</span><span class="caret">▸</span>
+      </summary><div class="tkbody">${t.b}<div class="verify"><b>Verify ·</b> ${t.v}</div></div></details>`;
+    }).join('')
+  + `</div>`
+).join('');
+
+/* ── nav: scroll-spy + mobile ── */
+const links=[...document.querySelectorAll('.navlink')];
+const secs=links.map(l=>document.querySelector(l.getAttribute('href')));
+const spy=new IntersectionObserver(es=>{es.forEach(e=>{if(e.isIntersecting){const id='#'+e.target.id;
+  links.forEach(l=>l.classList.toggle('active',l.getAttribute('href')===id));}});},{rootMargin:'-45% 0px -50% 0px'});
+secs.forEach(s=>s&&spy.observe(s));
+const side=document.getElementById('side'), mb=document.getElementById('menubtn');
+mb.addEventListener('click',()=>side.classList.toggle('open'));
+links.forEach(l=>l.addEventListener('click',()=>side.classList.remove('open')));
+
+/* ── mermaid (lazy) ── */
+let mmLoaded=false, mmMod=null;
+async function ensureMermaid(){
+  if(mmLoaded)return mmMod;
+  mmMod=(await import('https://cdn.jsdelivr.net/npm/mermaid@11/dist/mermaid.esm.min.mjs')).default;
+  mmMod.initialize({startOnLoad:false,theme:'dark',securityLevel:'loose',
+    themeVariables:{fontFamily:'JetBrains Mono, monospace',primaryColor:'#161b23',primaryTextColor:'#e7ecf3',
+      primaryBorderColor:'#333d4d',lineColor:'#6c7888',secondaryColor:'#11151c',tertiaryColor:'#0a0c10'}});
+  mmLoaded=true; return mmMod;
+}
+document.querySelectorAll('details.blueprint').forEach(d=>{
+  d.addEventListener('toggle',async()=>{
+    if(!d.open)return;
+    const node=d.querySelector('.mermaid');
+    if(node.dataset.processed)return;
+    const m=await ensureMermaid();
+    try{const {svg}=await m.render('mm'+Math.random().toString(36).slice(2),node.textContent.trim());
+      node.innerHTML=svg; node.dataset.processed='1';}catch(err){node.textContent='diagram unavailable offline';}
+  });
+});
+</script>
+</body>
+</html>

@@ -1,0 +1,1018 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1.0" />
+<title>Several Millers · Live ChatGPT Business Connector — VM + Caddy + AzureProvider (Spec 005)</title>
+<meta name="description" content="As-built runbook for Several Millers' live ChatGPT Business connector: pg-mcp-server on the Azure VM, Caddy for auto-HTTPS, FastMCP AzureProvider OAuth proxy, single Entra app." />
+<link rel="preconnect" href="https://fonts.googleapis.com" />
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+<link href="https://fonts.googleapis.com/css2?family=Bricolage+Grotesque:opsz,wght@12..96,500;12..96,700;12..96,800&family=Hanken+Grotesk:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500;700&display=swap" rel="stylesheet" />
+<style>
+:root{
+  --bg:#0a0c10;
+  --bg-grid:#0d1016;
+  --raised:#11151c;
+  --surface:#161b23;
+  --surface-2:#1c222c;
+  --line:#262d39;
+  --line-bright:#333d4d;
+  --ink:#e7ecf3;
+  --ink-dim:#aab4c2;
+  --ink-faint:#6c7888;
+  --amber:#ffb13d;       /* primary accent / the server */
+  --amber-soft:#3a2c12;
+  --cg:#19c37d;          /* ChatGPT  */
+  --caddy:#38bdf8;       /* Caddy    */
+  --srv:#ffb13d;         /* server   */
+  --entra:#c084fc;       /* Entra    */
+  --pg:#fb7185;          /* Postgres */
+  --danger:#ff5d6c;
+  --ok:#37d39a;
+  --r:14px;
+  --r-sm:9px;
+  --mono:"JetBrains Mono",ui-monospace,SFMono-Regular,Menlo,monospace;
+  --disp:"Bricolage Grotesque",system-ui,sans-serif;
+  --body:"Hanken Grotesk",system-ui,sans-serif;
+  --shadow:0 18px 50px -22px rgba(0,0,0,.85);
+}
+*{box-sizing:border-box;margin:0;padding:0}
+html{scroll-behavior:smooth}
+body{
+  font-family:var(--body);
+  background:var(--bg);
+  color:var(--ink);
+  line-height:1.6;
+  -webkit-font-smoothing:antialiased;
+  overflow-x:hidden;
+}
+/* faint engineering grid + vignette */
+body::before{
+  content:"";position:fixed;inset:0;z-index:-2;
+  background:
+    linear-gradient(to right,var(--bg-grid) 1px,transparent 1px) 0 0/46px 46px,
+    linear-gradient(to bottom,var(--bg-grid) 1px,transparent 1px) 0 0/46px 46px,
+    radial-gradient(1200px 700px at 78% -8%,rgba(255,177,61,.07),transparent 60%),
+    radial-gradient(1000px 800px at 0% 100%,rgba(56,189,248,.05),transparent 55%),
+    var(--bg);
+}
+body::after{
+  content:"";position:fixed;inset:0;z-index:-1;pointer-events:none;
+  background:radial-gradient(circle at 50% 35%,transparent 55%,rgba(0,0,0,.55) 100%);
+}
+a{color:inherit;text-decoration:none}
+::selection{background:rgba(255,177,61,.28);color:#fff}
+
+/* ---------------- layout ---------------- */
+.shell{display:grid;grid-template-columns:264px 1fr;max-width:1480px;margin:0 auto}
+nav.side{
+  position:sticky;top:0;height:100vh;align-self:start;
+  border-right:1px solid var(--line);
+  padding:28px 22px;display:flex;flex-direction:column;gap:4px;
+  background:linear-gradient(180deg,rgba(17,21,28,.6),rgba(10,12,16,.2));
+  backdrop-filter:blur(6px);
+}
+.brand{display:flex;align-items:center;gap:11px;margin-bottom:26px}
+.brand .dot{width:34px;height:34px;border-radius:9px;flex:none;
+  background:conic-gradient(from 200deg,var(--amber),#ff7a3d 40%,var(--entra) 75%,var(--caddy));
+  box-shadow:0 0 0 1px rgba(255,255,255,.08),0 8px 22px -8px var(--amber);position:relative}
+.brand .dot::after{content:"";position:absolute;inset:7px;border-radius:5px;background:var(--bg);}
+.brand .dot::before{content:"⌘";position:absolute;inset:0;display:grid;place-items:center;font-family:var(--mono);font-size:14px;color:var(--amber);z-index:1}
+.brand b{font-family:var(--disp);font-weight:800;font-size:15px;letter-spacing:-.01em;line-height:1.1}
+.brand span{display:block;font-size:11px;color:var(--ink-faint);font-family:var(--mono);letter-spacing:.04em}
+.navlink{
+  display:flex;align-items:center;gap:11px;padding:9px 12px;border-radius:9px;
+  color:var(--ink-dim);font-size:13.5px;font-weight:500;transition:.18s;position:relative;
+}
+.navlink .num{font-family:var(--mono);font-size:11px;color:var(--ink-faint);width:18px;flex:none}
+.navlink:hover{background:var(--surface);color:var(--ink)}
+.navlink.active{background:linear-gradient(90deg,rgba(255,177,61,.14),transparent);color:var(--amber)}
+.navlink.active .num{color:var(--amber)}
+.navlink.active::before{content:"";position:absolute;left:-22px;top:8px;bottom:8px;width:3px;border-radius:0 3px 3px 0;background:var(--amber)}
+.side .meta{margin-top:auto;padding-top:20px;border-top:1px solid var(--line);font-family:var(--mono);font-size:10.5px;color:var(--ink-faint);line-height:1.8}
+.side .meta b{color:var(--ok);font-weight:500}
+
+main{padding:0 clamp(20px,4vw,68px) 120px;min-width:0}
+section{padding-top:96px;scroll-margin-top:24px}
+.eyebrow{font-family:var(--mono);font-size:12px;letter-spacing:.22em;text-transform:uppercase;color:var(--amber);display:flex;align-items:center;gap:12px;margin-bottom:16px}
+.eyebrow::before{content:"";width:26px;height:1px;background:var(--amber)}
+h2.sec{font-family:var(--disp);font-weight:800;font-size:clamp(26px,3.4vw,42px);letter-spacing:-.02em;line-height:1.05;margin-bottom:14px}
+.lead{font-size:16.5px;color:var(--ink-dim);max-width:70ch;margin-bottom:30px}
+.lead b{color:var(--ink);font-weight:600}
+
+/* ---------------- hero ---------------- */
+.hero{min-height:92vh;display:flex;flex-direction:column;justify-content:center;padding-top:60px;position:relative}
+.hero .badges{display:flex;gap:9px;flex-wrap:wrap;margin-bottom:26px}
+.pill{font-family:var(--mono);font-size:11.5px;letter-spacing:.03em;padding:6px 12px;border-radius:100px;border:1px solid var(--line-bright);color:var(--ink-dim);background:var(--surface);display:inline-flex;align-items:center;gap:7px}
+.pill.live{color:var(--ok);border-color:rgba(55,211,154,.35)}
+.pill.live .blip{width:7px;height:7px;border-radius:50%;background:var(--ok);box-shadow:0 0 0 0 rgba(55,211,154,.6);animation:blip 1.8s infinite}
+@keyframes blip{0%{box-shadow:0 0 0 0 rgba(55,211,154,.55)}70%{box-shadow:0 0 0 8px rgba(55,211,154,0)}100%{box-shadow:0 0 0 0 rgba(55,211,154,0)}}
+h1{font-family:var(--disp);font-weight:800;font-size:clamp(40px,7vw,86px);line-height:.98;letter-spacing:-.035em;margin-bottom:22px}
+h1 .grad{background:linear-gradient(100deg,var(--amber),#ff8a4d 45%,var(--entra));-webkit-background-clip:text;background-clip:text;color:transparent}
+.hero p.sub{font-size:clamp(17px,2vw,21px);color:var(--ink-dim);max-width:62ch;margin-bottom:40px}
+.hero p.sub code{font-family:var(--mono);font-size:.88em;color:var(--amber);background:var(--amber-soft);padding:2px 7px;border-radius:6px}
+.factgrid{display:grid;grid-template-columns:repeat(auto-fit,minmax(176px,1fr));gap:1px;background:var(--line);border:1px solid var(--line);border-radius:var(--r);overflow:hidden}
+.fact{background:var(--raised);padding:18px 20px}
+.fact .k{font-family:var(--mono);font-size:11px;letter-spacing:.06em;text-transform:uppercase;color:var(--ink-faint);margin-bottom:7px}
+.fact .v{font-size:16px;font-weight:600;color:var(--ink);font-family:var(--mono);word-break:break-word}
+.fact .v small{display:block;font-family:var(--body);font-weight:400;font-size:12.5px;color:var(--ink-faint);margin-top:3px;letter-spacing:0}
+.scrollcue{margin-top:54px;font-family:var(--mono);font-size:12px;color:var(--ink-faint);display:flex;align-items:center;gap:10px;letter-spacing:.04em}
+.scrollcue .ln{width:40px;height:1px;background:var(--line-bright);position:relative;overflow:hidden}
+.scrollcue .ln::after{content:"";position:absolute;inset:0;width:14px;background:var(--amber);animation:slide 2.4s infinite}
+@keyframes slide{0%{transform:translateX(-14px)}100%{transform:translateX(40px)}}
+
+/* ---------------- generic cards ---------------- */
+.card{background:var(--surface);border:1px solid var(--line);border-radius:var(--r);padding:22px;box-shadow:var(--shadow)}
+.grid2{display:grid;grid-template-columns:1fr 1fr;gap:18px}
+.callout{border:1px solid var(--line-bright);border-left:3px solid var(--amber);background:linear-gradient(90deg,rgba(255,177,61,.07),var(--surface) 40%);border-radius:var(--r-sm);padding:18px 20px;font-size:14.5px;color:var(--ink-dim)}
+.callout b{color:var(--ink)}
+.callout.warn{border-left-color:var(--danger);background:linear-gradient(90deg,rgba(255,93,108,.08),var(--surface) 40%)}
+code,kbd{font-family:var(--mono)}
+.tag{font-family:var(--mono);font-size:10.5px;padding:3px 8px;border-radius:5px;border:1px solid var(--line-bright);color:var(--ink-dim);background:var(--bg)}
+
+/* ---------------- architecture explorer ---------------- */
+.arch{display:grid;grid-template-columns:1.35fr 1fr;gap:22px;align-items:start}
+@media(max-width:1080px){.arch{grid-template-columns:1fr}}
+.archmap{background:var(--raised);border:1px solid var(--line);border-radius:var(--r);padding:26px 24px;position:relative;overflow:hidden}
+.archmap .zone{font-family:var(--mono);font-size:10.5px;letter-spacing:.1em;text-transform:uppercase;color:var(--ink-faint);margin:4px 0 12px}
+.vmbox{border:1px dashed var(--line-bright);border-radius:12px;padding:16px;margin-top:6px;position:relative}
+.vmbox .vmtag{position:absolute;top:-9px;left:14px;background:var(--raised);padding:0 8px;font-family:var(--mono);font-size:10.5px;color:var(--caddy);letter-spacing:.05em}
+.node{display:flex;align-items:center;gap:13px;width:100%;text-align:left;background:var(--surface);border:1px solid var(--line);border-radius:10px;padding:13px 15px;cursor:pointer;transition:.18s;color:var(--ink);margin:10px 0;position:relative}
+.node:hover{border-color:var(--nc,var(--amber));transform:translateY(-1px)}
+.node.sel{border-color:var(--nc);box-shadow:0 0 0 1px var(--nc),0 10px 26px -14px var(--nc);background:var(--surface-2)}
+.node .ic{width:38px;height:38px;border-radius:9px;flex:none;display:grid;place-items:center;font-family:var(--mono);font-weight:700;font-size:15px;color:var(--nc);background:color-mix(in srgb,var(--nc) 14%,transparent);border:1px solid color-mix(in srgb,var(--nc) 40%,transparent)}
+.node .nt{font-weight:600;font-size:14.5px}
+.node .ns{font-family:var(--mono);font-size:11px;color:var(--ink-faint)}
+.flowarrow{display:flex;align-items:center;gap:8px;justify-content:center;color:var(--ink-faint);font-family:var(--mono);font-size:10.5px;margin:-2px 0}
+.flowarrow .l{height:18px;width:1px;background:linear-gradient(var(--line-bright),transparent)}
+.archdetail{position:sticky;top:24px}
+.archdetail .dhead{display:flex;align-items:center;gap:12px;margin-bottom:14px}
+.archdetail .dic{width:44px;height:44px;border-radius:10px;display:grid;place-items:center;font-family:var(--mono);font-weight:700;color:var(--dc,var(--amber));background:color-mix(in srgb,var(--dc) 15%,transparent);border:1px solid color-mix(in srgb,var(--dc) 40%,transparent)}
+.archdetail h3{font-family:var(--disp);font-size:21px;font-weight:700;letter-spacing:-.01em}
+.archdetail .dsub{font-family:var(--mono);font-size:11.5px;color:var(--dc)}
+.krow{display:flex;justify-content:space-between;gap:14px;padding:10px 0;border-bottom:1px solid var(--line);font-size:13.5px}
+.krow:last-child{border-bottom:0}
+.krow .kk{color:var(--ink-faint);font-family:var(--mono);font-size:11.5px;letter-spacing:.03em;flex:none}
+.krow .kv{text-align:right;font-family:var(--mono);font-size:12.5px;color:var(--ink);word-break:break-word}
+.dnote{margin-top:14px;font-size:13.5px;color:var(--ink-dim)}
+
+/* ---------------- OAuth stepper ---------------- */
+.stage{background:var(--raised);border:1px solid var(--line);border-radius:var(--r);padding:24px 22px 8px;position:relative}
+.lanes{position:relative}
+.lanerow{display:grid;grid-template-columns:repeat(5,1fr);gap:10px;position:relative;z-index:2}
+.lane{display:flex;flex-direction:column;align-items:center;gap:8px}
+.actor{width:100%;border:1px solid var(--line);background:var(--surface);border-radius:10px;padding:12px 8px;text-align:center;transition:.25s;position:relative}
+.actor .ab{font-family:var(--mono);font-weight:700;font-size:13px;color:var(--ac)}
+.actor .al{font-size:10.5px;color:var(--ink-faint);margin-top:3px;line-height:1.25}
+.actor.on{border-color:var(--ac);background:color-mix(in srgb,var(--ac) 12%,var(--surface));box-shadow:0 0 0 1px var(--ac),0 0 26px -8px var(--ac)}
+.actor.dim{opacity:.4}
+.svgwrap{position:absolute;inset:0;z-index:1;pointer-events:none;overflow:visible}
+.packet{fill:var(--amber);filter:drop-shadow(0 0 5px var(--amber))}
+.stepmeta{display:flex;gap:16px;align-items:flex-start;margin-top:22px;flex-wrap:wrap}
+.stepnum{font-family:var(--disp);font-weight:800;font-size:46px;line-height:.9;color:var(--amber);flex:none;letter-spacing:-.04em}
+.stepnum small{display:block;font-family:var(--mono);font-size:11px;color:var(--ink-faint);font-weight:400;letter-spacing:.08em;margin-top:4px}
+.stepbody{flex:1;min-width:280px}
+.stepbody h3{font-family:var(--disp);font-size:21px;font-weight:700;letter-spacing:-.01em;margin-bottom:6px}
+.stepbody .flowtag{font-family:var(--mono);font-size:11px;color:var(--ink-faint);margin-bottom:12px}
+.stepbody .flowtag b{color:var(--ac1,var(--amber))}
+.stepbody p.plain{font-size:14.5px;color:var(--ink-dim);margin-bottom:14px}
+.wire{background:var(--bg);border:1px solid var(--line);border-radius:var(--r-sm);font-family:var(--mono);font-size:12.5px;overflow:hidden;margin-bottom:8px}
+.wire .wh{display:flex;align-items:center;gap:8px;padding:8px 12px;border-bottom:1px solid var(--line);background:var(--surface);font-size:10.5px;letter-spacing:.06em;text-transform:uppercase;color:var(--ink-faint)}
+.wire .verb{font-weight:700;padding:1px 7px;border-radius:4px;font-size:10.5px}
+.verb.GET{background:rgba(56,189,248,.16);color:var(--caddy)}
+.verb.POST{background:rgba(192,132,252,.16);color:var(--entra)}
+.verb.REDIRECT{background:rgba(255,177,61,.16);color:var(--amber)}
+.verb.BEARER{background:rgba(25,195,125,.16);color:var(--cg)}
+.wire pre{padding:12px 14px;color:var(--ink);white-space:pre-wrap;word-break:break-word;line-height:1.55;font-size:12px}
+.wire pre .c{color:var(--ink-faint)}
+.controls{display:flex;align-items:center;gap:12px;margin-top:18px;border-top:1px solid var(--line);padding-top:16px}
+.btn{font-family:var(--body);font-weight:600;font-size:13.5px;border:1px solid var(--line-bright);background:var(--surface);color:var(--ink);padding:9px 16px;border-radius:9px;cursor:pointer;transition:.16s;display:inline-flex;align-items:center;gap:8px}
+.btn:hover:not(:disabled){border-color:var(--amber);color:var(--amber)}
+.btn:disabled{opacity:.35;cursor:not-allowed}
+.btn.primary{background:var(--amber);color:#1a1206;border-color:var(--amber)}
+.btn.primary:hover{filter:brightness(1.08);color:#1a1206}
+.dots{display:flex;gap:7px;margin-left:auto}
+.dots i{width:9px;height:9px;border-radius:50%;background:var(--line-bright);cursor:pointer;transition:.18s}
+.dots i.on{background:var(--amber);transform:scale(1.18)}
+.dots i.done{background:color-mix(in srgb,var(--amber) 45%,var(--line-bright))}
+.progress{height:3px;background:var(--line);border-radius:3px;overflow:hidden;margin:18px 0 0}
+.progress i{display:block;height:100%;background:linear-gradient(90deg,var(--amber),#ff7a3d);transition:width .4s ease}
+
+/* ---------------- security gates ---------------- */
+.sec-wrap{display:grid;grid-template-columns:330px 1fr;gap:22px;align-items:start}
+@media(max-width:980px){.sec-wrap{grid-template-columns:1fr}}
+.samples{display:flex;flex-direction:column;gap:10px;position:sticky;top:24px}
+.sample{text-align:left;border:1px solid var(--line);background:var(--surface);border-radius:10px;padding:12px 14px;cursor:pointer;transition:.16s;color:var(--ink)}
+.sample:hover{border-color:var(--line-bright);transform:translateX(2px)}
+.sample.sel{border-color:var(--amber);box-shadow:0 0 0 1px var(--amber)}
+.sample .st{font-family:var(--mono);font-size:12px;color:var(--ink);margin-bottom:5px;word-break:break-all}
+.sample .sd{font-size:11.5px;color:var(--ink-faint)}
+.sample.bad.sel{border-color:var(--danger);box-shadow:0 0 0 1px var(--danger)}
+.gates{position:relative;display:flex;flex-direction:column;gap:0}
+.gate{display:flex;align-items:flex-start;gap:14px;padding:14px 16px;border:1px solid var(--line);background:var(--surface);border-radius:11px;margin-bottom:9px;transition:.3s;position:relative}
+.gate .gn{width:30px;height:30px;border-radius:8px;flex:none;display:grid;place-items:center;font-family:var(--mono);font-size:12px;font-weight:700;color:var(--ink-faint);border:1px solid var(--line-bright);background:var(--bg);transition:.3s}
+.gate .gt{font-weight:600;font-size:14px}
+.gate .gd{font-size:12.5px;color:var(--ink-faint);font-family:var(--mono);margin-top:2px}
+.gate .gx{margin-left:auto;font-family:var(--mono);font-size:11px;color:var(--ink-faint);align-self:center;transition:.3s;text-align:right;flex:none}
+.gate.pass{border-color:rgba(55,211,154,.5);background:linear-gradient(90deg,rgba(55,211,154,.07),var(--surface) 50%)}
+.gate.pass .gn{color:var(--ok);border-color:var(--ok);background:rgba(55,211,154,.12)}
+.gate.pass .gx{color:var(--ok)}
+.gate.block{border-color:var(--danger);background:linear-gradient(90deg,rgba(255,93,108,.1),var(--surface) 50%);box-shadow:0 0 26px -10px var(--danger)}
+.gate.block .gn{color:var(--danger);border-color:var(--danger);background:rgba(255,93,108,.14)}
+.gate.block .gx{color:var(--danger);font-weight:700}
+.verdict{margin-top:14px;border-radius:11px;padding:16px 18px;font-size:14px;border:1px solid var(--line)}
+.verdict.ok{border-color:rgba(55,211,154,.5);background:rgba(55,211,154,.07)}
+.verdict.no{border-color:var(--danger);background:rgba(255,93,108,.08)}
+.verdict b{font-family:var(--disp);font-size:15px}
+.verdict .vrows{font-family:var(--mono);font-size:12px;color:var(--ink-dim);margin-top:8px;white-space:pre-wrap}
+
+/* ---------------- tools ---------------- */
+.tools{display:grid;grid-template-columns:repeat(auto-fill,minmax(280px,1fr));gap:14px}
+.tool{border:1px solid var(--line);background:var(--surface);border-radius:12px;padding:16px 18px;transition:.18s;cursor:pointer}
+.tool:hover{border-color:var(--amber);transform:translateY(-2px)}
+.tool .sig{font-family:var(--mono);font-size:13.5px;color:var(--amber);margin-bottom:8px;font-weight:500}
+.tool .sig .p{color:var(--caddy)}
+.tool .td{font-size:13px;color:var(--ink-dim)}
+.tool .more{font-family:var(--mono);font-size:12px;color:var(--ink-dim);margin-top:12px;border-top:1px solid var(--line);padding-top:12px;display:none}
+.tool.open .more{display:block}
+.tool .more .ex{color:var(--ink-faint)}
+
+/* ---------------- checklist accordion ---------------- */
+.steps-list{display:flex;flex-direction:column;gap:8px}
+.tk{border:1px solid var(--line);background:var(--surface);border-radius:11px;overflow:hidden}
+.tk summary{list-style:none;cursor:pointer;display:flex;align-items:center;gap:14px;padding:15px 18px}
+.tk summary::-webkit-details-marker{display:none}
+.tk .chk{width:26px;height:26px;border-radius:8px;flex:none;display:grid;place-items:center;background:var(--amber-soft);border:1px solid color-mix(in srgb,var(--amber) 45%,transparent);color:var(--amber);font-size:12px;font-family:var(--mono);font-weight:700}
+.tk .ttl{font-weight:600;font-size:14.5px}
+.tk .who{margin-left:auto;font-family:var(--mono);font-size:10.5px;color:var(--ink-faint);border:1px solid var(--line-bright);padding:3px 9px;border-radius:100px;flex:none}
+.tk .caret{flex:none;color:var(--ink-faint);transition:.2s}
+.tk[open] .caret{transform:rotate(90deg);color:var(--amber)}
+.tk .tkbody{padding:0 18px 18px 56px;font-size:13.5px;color:var(--ink-dim);border-top:1px solid var(--line);padding-top:14px;margin-top:-2px}
+.tk .tkbody .verify{margin-top:10px;font-family:var(--mono);font-size:12px;color:var(--ink-dim);background:var(--bg);border:1px solid var(--line);border-left:2px solid var(--ok);border-radius:6px;padding:9px 12px}
+.tk .tkbody .verify b{color:var(--ok)}
+
+/* ---------------- config tabs ---------------- */
+.tabs{display:flex;gap:6px;flex-wrap:wrap;margin-bottom:14px}
+.tab{font-family:var(--mono);font-size:12.5px;padding:8px 14px;border-radius:8px;border:1px solid var(--line);background:var(--surface);color:var(--ink-dim);cursor:pointer;transition:.16s}
+.tab:hover{color:var(--ink)}
+.tab.on{background:var(--amber);color:#1a1206;border-color:var(--amber);font-weight:700}
+.codeblock{background:#070a0e;border:1px solid var(--line);border-radius:var(--r);overflow:hidden}
+.codeblock .cbh{display:flex;align-items:center;gap:8px;padding:10px 14px;border-bottom:1px solid var(--line);background:var(--surface)}
+.codeblock .cbh .fn{font-family:var(--mono);font-size:12px;color:var(--ink-dim)}
+.codeblock .cbh .dots3{display:flex;gap:6px}
+.codeblock .cbh .dots3 i{width:9px;height:9px;border-radius:50%}
+.copy{margin-left:auto;font-family:var(--mono);font-size:11px;color:var(--ink-faint);border:1px solid var(--line-bright);background:var(--bg);padding:4px 10px;border-radius:6px;cursor:pointer;transition:.16s}
+.copy:hover{color:var(--amber);border-color:var(--amber)}
+.codeblock pre{padding:16px 18px;overflow:auto;font-family:var(--mono);font-size:12.5px;line-height:1.7;color:#cdd6e3}
+.codeblock pre .c{color:#5b6675}
+.codeblock pre .k{color:var(--amber)}
+.codeblock pre .s{color:var(--cg)}
+.codeblock pre .v{color:var(--caddy)}
+.hidden{display:none}
+
+/* ---------------- mermaid blueprint ---------------- */
+details.blueprint{margin-top:18px;border:1px solid var(--line);border-radius:var(--r);background:var(--raised);overflow:hidden}
+details.blueprint summary{list-style:none;cursor:pointer;padding:13px 18px;font-family:var(--mono);font-size:12.5px;color:var(--ink-dim);display:flex;align-items:center;gap:10px}
+details.blueprint summary::-webkit-details-marker{display:none}
+details.blueprint summary .caret{transition:.2s;color:var(--ink-faint)}
+details.blueprint[open] summary .caret{transform:rotate(90deg);color:var(--amber)}
+details.blueprint .mwrap{padding:10px 18px 22px;overflow:auto}
+.mermaid{font-family:var(--body)!important;min-height:40px}
+.mermaid:not([data-processed])::before{content:"rendering diagram…";font-family:var(--mono);font-size:12px;color:var(--ink-faint)}
+
+/* footer */
+.opsgrid{display:grid;grid-template-columns:1fr 1fr;gap:14px}
+@media(max-width:760px){.opsgrid{grid-template-columns:1fr}}
+.opcard{border:1px solid var(--line);background:var(--surface);border-radius:12px;padding:16px 18px}
+.opcard .ol{font-family:var(--mono);font-size:10.5px;letter-spacing:.1em;text-transform:uppercase;color:var(--amber);margin-bottom:10px}
+.opcard .ocmd{font-family:var(--mono);font-size:12.5px;color:var(--ink);background:var(--bg);border:1px solid var(--line);border-radius:7px;padding:9px 11px;margin-bottom:9px;display:block;word-break:break-all;line-height:1.5}
+.opcard .ocmd .pr{color:var(--ink-faint)}
+.opcard .oexp{font-size:12.5px;color:var(--ink-dim);line-height:1.55}
+.opcard .oexp b{color:var(--ok)}
+.opcard .oexp code{background:var(--bg);border:1px solid var(--line);border-radius:5px;padding:1px 6px;font-size:11.5px;color:var(--ink-dim)}
+footer{border-top:1px solid var(--line);margin-top:90px;padding-top:34px;color:var(--ink-faint);font-size:13px}
+.ftnote{font-family:var(--mono);font-size:11.5px;line-height:1.9}
+
+/* mobile */
+.menubtn{display:none}
+@media(max-width:920px){
+  .shell{grid-template-columns:1fr}
+  nav.side{position:fixed;left:0;top:0;width:280px;transform:translateX(-100%);transition:.3s;z-index:50;background:var(--bg)}
+  nav.side.open{transform:none;box-shadow:30px 0 60px rgba(0,0,0,.6)}
+  .menubtn{display:grid;place-items:center;position:fixed;top:16px;right:16px;z-index:60;width:46px;height:46px;border-radius:11px;background:var(--surface);border:1px solid var(--line-bright);color:var(--amber);font-size:20px;cursor:pointer}
+  main{padding-top:10px}
+  .grid2{grid-template-columns:1fr}
+  .lanerow{gap:5px}
+  .actor .al{display:none}
+}
+@media(max-width:560px){
+  .lane .actor .ab{font-size:11px}
+  .stepnum{font-size:36px}
+}
+</style>
+</head>
+<body>
+
+<button class="menubtn" id="menubtn" aria-label="menu">☰</button>
+
+<div class="shell">
+  <!-- ───────── sidebar ───────── -->
+  <nav class="side" id="side">
+    <div class="brand">
+      <div class="dot"></div>
+      <div>
+        <b>Several Millers</b>
+        <span>live connector · spec 005</span>
+      </div>
+    </div>
+    <a class="navlink active" href="#overview"><span class="num">00</span>Overview</a>
+    <a class="navlink" href="#architecture"><span class="num">01</span>Architecture</a>
+    <a class="navlink" href="#oauth"><span class="num">02</span>OAuth connect flow</a>
+    <a class="navlink" href="#query"><span class="num">03</span>Query path &amp; security</a>
+    <a class="navlink" href="#tools"><span class="num">04</span>The tools</a>
+    <a class="navlink" href="#build"><span class="num">05</span>Build checklist</a>
+    <a class="navlink" href="#config"><span class="num">06</span>Config reference</a>
+    <a class="navlink" href="#operate"><span class="num">07</span>Operate &amp; verify</a>
+    <div class="meta">
+      RUNBOOK · <b>SM live connector</b><br>
+      HOST · smpgmcp<br>&nbsp;&nbsp;.westus.cloudapp.azure.com<br>
+      RG · Several_Millers_Default<br>
+      FASTMCP · v3.4.2+
+    </div>
+  </nav>
+
+  <main>
+    <!-- ───────── HERO / OVERVIEW ───────── -->
+    <section id="overview" class="hero">
+      <div class="badges">
+        <span class="pill live"><span class="blip"></span>Implementation guide &amp; runbook</span>
+        <span class="pill">VM + Caddy</span>
+        <span class="pill">FastMCP AzureProvider</span>
+        <span class="pill">Microsoft Entra ID</span>
+      </div>
+      <h1>Several Millers' live connector:<br><span class="grad">ChatGPT Business</span><br>→ VM + Caddy → Postgres.</h1>
+      <p class="sub">
+        A self-hosted MCP server runs <b>on the Azure VM</b>, fronted by <code>Caddy</code> for
+        automatic HTTPS. ChatGPT discovers its OAuth metadata, a single <b>Entra app</b> handles
+        login, and every query reaches Postgres as the read-only <code>mcp_readonly</code> role.
+        Click through the flow below — it explains itself.
+      </p>
+
+      <div class="factgrid">
+        <div class="fact"><div class="k">Connector URL</div><div class="v">…/mcp<small>over HTTPS :443</small></div></div>
+        <div class="fact"><div class="k">VM</div><div class="v">vm-pgmcp-test<small>Ubuntu 24.04 · West US</small></div></div>
+        <div class="fact"><div class="k">Private IP</div><div class="v">10.0.0.4<small>static · localhost DB</small></div></div>
+        <div class="fact"><div class="k">Scope</div><div class="v">pg.read<small>user consent</small></div></div>
+        <div class="fact"><div class="k">Database</div><div class="v">mg_dwh<small>schema centric_8_plm</small></div></div>
+        <div class="fact"><div class="k">Tools</div><div class="v">5<small>all read-only</small></div></div>
+      </div>
+
+      <div class="scrollcue"><span class="ln"></span>SCROLL TO BEGIN THE WALKTHROUGH</div>
+    </section>
+
+    <!-- ───────── WHY THIS SHAPE ───────── -->
+    <section id="why">
+      <div class="eyebrow">The decision</div>
+      <h2 class="sec">Why a VM &amp; Caddy — not Container Apps</h2>
+      <p class="lead">Spec 004 planned to run the server on <b>Azure Container Apps</b>. That path was
+        <b>blocked</b>: registering the <code>Microsoft.App</code> resource provider is a
+        subscription-level action, and the operator is only <b>Contributor on the resource group</b>.
+        Spec 005 routes around it — the VM already hosts Postgres and the server, so nothing
+        subscription-level is required.</p>
+      <div class="grid2">
+        <div class="card">
+          <div class="eyebrow" style="color:var(--danger)">Blocked path · spec 004</div>
+          <h3 style="font-family:var(--disp);font-size:18px;margin-bottom:10px">Container Apps</h3>
+          <ul style="list-style:none;display:flex;flex-direction:column;gap:9px;font-size:13.5px;color:var(--ink-dim)">
+            <li>✗ Needs <code style="color:var(--danger)">Microsoft.App</code> provider registered (subscription)</li>
+            <li>✗ Postgres must open to the VNet (<code>pg_hba</code>, subnet NSG, static IP)</li>
+            <li>✗ ACR build + Key Vault access policy + managed identity</li>
+            <li>✗ Outside the operator's RG-Contributor access</li>
+          </ul>
+        </div>
+        <div class="card" style="border-color:rgba(55,211,154,.4)">
+          <div class="eyebrow" style="color:var(--ok)">As-built · spec 005</div>
+          <h3 style="font-family:var(--disp);font-size:18px;margin-bottom:10px">Server on the VM + Caddy</h3>
+          <ul style="list-style:none;display:flex;flex-direction:column;gap:9px;font-size:13.5px;color:var(--ink-dim)">
+            <li>✓ Caddy auto-issues a Let's Encrypt cert for the free DNS name</li>
+            <li>✓ Server binds <code>127.0.0.1:8000</code> under systemd — only Caddy is public</li>
+            <li>✓ Postgres stays localhost — no VNet, no <code>pg_hba</code>, no public 5432</li>
+            <li>✓ Built entirely with RG-Contributor + Cloud App Admin</li>
+          </ul>
+        </div>
+      </div>
+    </section>
+
+    <!-- ───────── ARCHITECTURE ───────── -->
+    <section id="architecture">
+      <div class="eyebrow">01 · Topology</div>
+      <h2 class="sec">The moving parts</h2>
+      <p class="lead">Five components, one request path. <b>Click any node</b> to inspect its
+        as-built configuration. Everything inside the dashed box lives on a single Azure VM.</p>
+
+      <div class="arch">
+        <div class="archmap">
+          <div class="zone">Public internet</div>
+          <button class="node sel" style="--nc:var(--cg)" data-node="cg">
+            <span class="ic">CG</span>
+            <span><span class="nt">ChatGPT Business</span><br><span class="ns">developer-mode connector</span></span>
+          </button>
+          <div class="flowarrow"><span class="l"></span>HTTPS · /mcp + OAuth<span class="l"></span></div>
+
+          <div class="vmbox">
+            <span class="vmtag">AZURE VM · vm-pgmcp-test · 10.0.0.4</span>
+            <button class="node" style="--nc:var(--caddy)" data-node="caddy">
+              <span class="ic">CA</span>
+              <span><span class="nt">Caddy</span> · :443<br><span class="ns">automatic HTTPS (Let's Encrypt)</span></span>
+            </button>
+            <div class="flowarrow"><span class="l"></span>reverse_proxy → 127.0.0.1:8000<span class="l"></span></div>
+            <button class="node" style="--nc:var(--srv)" data-node="srv">
+              <span class="ic">PX</span>
+              <span><span class="nt">pg-mcp-server</span> · :8000<br><span class="ns">systemd · FastMCP AzureProvider</span></span>
+            </button>
+            <div class="flowarrow"><span class="l"></span>localhost · read-only<span class="l"></span></div>
+            <button class="node" style="--nc:var(--pg)" data-node="pg">
+              <span class="ic">DB</span>
+              <span><span class="nt">PostgreSQL</span><br><span class="ns">mg_dwh · role mcp_readonly</span></span>
+            </button>
+          </div>
+
+          <div class="flowarrow" style="margin-top:14px"><span class="l"></span>proxy upstream login ↑<span class="l"></span></div>
+          <button class="node" style="--nc:var(--entra)" data-node="entra">
+            <span class="ic">EN</span>
+            <span><span class="nt">Microsoft Entra ID</span><br><span class="ns">one app registration · pg.read</span></span>
+          </button>
+        </div>
+
+        <div class="archdetail card" id="archdetail"><!-- injected --></div>
+      </div>
+
+      <details class="blueprint">
+        <summary><span class="caret">▸</span> Static blueprint — deployment graph (Mermaid, MCP-validated)</summary>
+        <div class="mwrap">
+          <pre class="mermaid">
+graph LR
+  CG["ChatGPT Business<br/>developer-mode connector"]
+  subgraph VM["Azure VM - vm-pgmcp-test - West US"]
+    CADDY["Caddy :443<br/>auto-HTTPS (Let's Encrypt)"]
+    SRV["pg-mcp-server :8000<br/>systemd - FastMCP AzureProvider"]
+    PG[("PostgreSQL<br/>mg_dwh / centric_8_plm<br/>role: mcp_readonly")]
+  end
+  ENTRA["Microsoft Entra ID<br/>one app registration"]
+  CG -- "HTTPS /mcp + OAuth" --> CADDY
+  CADDY -- "reverse_proxy 127.0.0.1:8000" --> SRV
+  SRV -- "localhost (read-only)" --> PG
+  SRV -- "proxy upstream login" --> ENTRA
+  CG -. "user login + pg.read consent" .-> ENTRA
+          </pre>
+        </div>
+      </details>
+    </section>
+
+    <!-- ───────── OAUTH STEPPER ───────── -->
+    <section id="oauth">
+      <div class="eyebrow">02 · The handshake</div>
+      <h2 class="sec">How ChatGPT logs in</h2>
+      <p class="lead">Entra can't do open Dynamic Client Registration, but ChatGPT requires it.
+        FastMCP's <b>AzureProvider</b> bridges the gap: it speaks DCR/CIMD + PKCE to ChatGPT and
+        proxies the real login to one fixed Entra app. Step through the full first-time connect below.</p>
+
+      <div class="stage">
+        <div class="lanes">
+          <div class="lanerow" id="lanerow">
+            <div class="lane"><div class="actor" data-a="cg" style="--ac:var(--cg)"><div class="ab">ChatGPT</div><div class="al">the connector</div></div></div>
+            <div class="lane"><div class="actor" data-a="caddy" style="--ac:var(--caddy)"><div class="ab">Caddy :443</div><div class="al">TLS front door</div></div></div>
+            <div class="lane"><div class="actor" data-a="srv" style="--ac:var(--srv)"><div class="ab">AzureProvider</div><div class="al">OAuth proxy</div></div></div>
+            <div class="lane"><div class="actor" data-a="entra" style="--ac:var(--entra)"><div class="ab">Entra ID</div><div class="al">identity</div></div></div>
+            <div class="lane"><div class="actor" data-a="pg" style="--ac:var(--pg)"><div class="ab">Postgres</div><div class="al">data</div></div></div>
+          </div>
+          <svg class="svgwrap" id="svg"><defs>
+            <marker id="ah" markerWidth="9" markerHeight="9" refX="7" refY="4.5" orient="auto">
+              <path d="M0,0 L9,4.5 L0,9 Z" fill="var(--amber)"></path>
+            </marker></defs>
+          </svg>
+        </div>
+
+        <div class="stepmeta">
+          <div class="stepnum" id="stepnum">1<small id="steptot">/ 8</small></div>
+          <div class="stepbody">
+            <h3 id="stitle">—</h3>
+            <div class="flowtag" id="sflow">—</div>
+            <p class="plain" id="splain">—</p>
+            <div class="wire">
+              <div class="wh"><span class="verb GET" id="sverb">GET</span><span id="spath">—</span></div>
+              <pre id="swire">—</pre>
+            </div>
+          </div>
+        </div>
+
+        <div class="progress"><i id="prog" style="width:12.5%"></i></div>
+        <div class="controls">
+          <button class="btn" id="prev" disabled>← Prev</button>
+          <button class="btn primary" id="next">Next →</button>
+          <button class="btn" id="play">▶ Auto-play</button>
+          <div class="dots" id="dots"></div>
+        </div>
+      </div>
+
+      <details class="blueprint">
+        <summary><span class="caret">▸</span> Static blueprint — full sequence diagram (Mermaid, MCP-validated)</summary>
+        <div class="mwrap">
+          <pre class="mermaid">
+sequenceDiagram
+  participant CG as ChatGPT
+  participant CA as Caddy :443
+  participant PX as AzureProvider (server)
+  participant EN as Microsoft Entra
+  participant DB as Postgres
+  CG->>CA: GET /.well-known/oauth-protected-resource/mcp
+  CA->>PX: reverse_proxy 127.0.0.1:8000
+  PX-->>CG: PRM (resource, auth server, scope pg.read)
+  CG->>PX: GET /.well-known/oauth-authorization-server
+  PX-->>CG: endpoints (/authorize /token /register jwks)
+  CG->>PX: POST /register (DCR / CIMD)
+  PX-->>CG: client_id
+  CG->>PX: GET /authorize + PKCE(S256)
+  PX->>EN: redirect /oauth2/v2.0/authorize (proxy PKCE)
+  EN-->>CG: login + pg.read consent screen
+  CG->>EN: approve
+  EN->>PX: GET /auth/callback?code=...
+  PX->>EN: exchange code (proxy verifier)
+  EN-->>PX: Entra v2 access token
+  PX-->>CG: redirect to chatgpt.com with proxy code
+  CG->>PX: POST /token + code_verifier
+  PX-->>CG: FastMCP JWT (Bearer)
+  CG->>PX: tools/call - Authorization: Bearer JWT
+  PX->>DB: query as mcp_readonly
+  DB-->>PX: rows
+  PX-->>CG: result
+          </pre>
+        </div>
+      </details>
+    </section>
+
+    <!-- ───────── QUERY / SECURITY ───────── -->
+    <section id="query">
+      <div class="eyebrow">03 · Defense in depth</div>
+      <h2 class="sec">What happens to a query</h2>
+      <p class="lead">Once connected, a tool call passes through a stack of independent gates before
+        it ever touches data. <b>Pick a request</b> on the left and watch where it lands — the gate
+        that stops it lights up red. The whitelist and the AST validator are convenience layers;
+        the <b>read-only, column-scoped database role is the real backstop</b>.</p>
+
+      <div class="sec-wrap">
+        <div class="samples" id="samples">
+          <button class="sample sel" data-s="0"><div class="st">get_style_by_code('AW-71001-001-001')</div><div class="sd">A whitelisted template — should succeed</div></button>
+          <button class="sample" data-s="1"><div class="st">query("SELECT code, fob_calc FROM styles")</div><div class="sd">Ad-hoc SELECT, whitelisted columns — succeeds</div></button>
+          <button class="sample bad" data-s="2"><div class="st">query("SELECT * FROM styles")</div><div class="sd">SELECT * — must name columns</div></button>
+          <button class="sample bad" data-s="3"><div class="st">query("SELECT ssn FROM styles")</div><div class="sd">Non-whitelisted column</div></button>
+          <button class="sample bad" data-s="4"><div class="st">query("INSERT INTO styles …")</div><div class="sd">A write attempt</div></button>
+          <button class="sample bad" data-s="5"><div class="st">tools/call · no Bearer token</div><div class="sd">Unauthenticated request</div></button>
+        </div>
+
+        <div>
+          <div class="gates" id="gates">
+            <div class="gate" data-g="0"><div class="gn">1</div><div><div class="gt">OAuth front door</div><div class="gd">AzureProvider · valid FastMCP JWT, scope pg.read?</div></div><div class="gx"></div></div>
+            <div class="gate" data-g="1"><div class="gn">2</div><div><div class="gt">Policy whitelist</div><div class="gd">policy.yaml · table &amp; column allow-list</div></div><div class="gx"></div></div>
+            <div class="gate" data-g="2"><div class="gn">3</div><div><div class="gt">AST validator (pglast)</div><div class="gd">single SELECT · no <code>*</code> · no writes · whitelisted refs</div></div><div class="gx"></div></div>
+            <div class="gate" data-g="3"><div class="gn">4</div><div><div class="gt">Row &amp; time caps</div><div class="gd">enforce_limit 200 · statement_timeout 5000ms</div></div><div class="gx"></div></div>
+            <div class="gate" data-g="4"><div class="gn">5</div><div><div class="gt">Read-only connection</div><div class="gd">set_read_only(True) · search_path=centric_8_plm</div></div><div class="gx"></div></div>
+            <div class="gate" data-g="5"><div class="gn">6</div><div><div class="gt">mcp_readonly DB role</div><div class="gd">column-level GRANT SELECT · the real backstop</div></div><div class="gx"></div></div>
+            <div class="gate" data-g="6"><div class="gn">▣</div><div><div class="gt">PostgreSQL · mg_dwh</div><div class="gd">synthetic rows returned</div></div><div class="gx"></div></div>
+          </div>
+          <div class="verdict" id="verdict"></div>
+        </div>
+      </div>
+    </section>
+
+    <!-- ───────── TOOLS ───────── -->
+    <section id="tools">
+      <div class="eyebrow">04 · The surface</div>
+      <h2 class="sec">Five read-only tools</h2>
+      <p class="lead">Built from <code>policy.yaml</code> at startup. Two are schema introspection,
+        one is the constrained open-query mode, and two are typed templates (one MCP tool generated
+        per template). <b>Click a card</b> to expand. The whitelist hides every <code>_airbyte_*</code>
+        and <code>jsonb</code> column.</p>
+      <div class="tools" id="toolgrid"></div>
+    </section>
+
+    <!-- ───────── BUILD CHECKLIST ───────── -->
+    <section id="build">
+      <div class="eyebrow">05 · Step by step</div>
+      <h2 class="sec">Standing it up</h2>
+      <p class="lead">Follow these nine steps in order to build the connector end to end.
+        <b>Expand</b> any step for the commands and how to verify it before moving on.</p>
+      <div class="steps-list" id="tasklist"></div>
+    </section>
+
+    <!-- ───────── CONFIG ───────── -->
+    <section id="config">
+      <div class="eyebrow">06 · Copy-paste reference</div>
+      <h2 class="sec">The actual config</h2>
+      <p class="lead">The four artifacts that make it run. Secrets are placeholders — the real ones
+        live in the VM's <code>.env</code> (chmod 600) and the Entra app.</p>
+      <div class="tabs" id="cfgtabs">
+        <button class="tab on" data-c="caddy">Caddyfile</button>
+        <button class="tab" data-c="env">.env</button>
+        <button class="tab" data-c="systemd">pg-mcp-server.service</button>
+        <button class="tab" data-c="entra">Entra app</button>
+      </div>
+      <div id="cfgpanes"></div>
+    </section>
+
+    <!-- ───────── OPERATE & VERIFY ───────── -->
+    <section id="operate">
+      <div class="eyebrow">07 · Day-two</div>
+      <h2 class="sec">Operate &amp; verify</h2>
+      <p class="lead">How to confirm the connector is healthy, watch what it's doing, and recover it.
+        The service commands run on the VM over SSH; the <code>curl</code> checks work from anywhere.</p>
+      <div class="opsgrid">
+        <div class="opcard">
+          <div class="ol">Service health</div>
+          <code class="ocmd"><span class="pr">$ </span>systemctl status pg-mcp-server</code>
+          <div class="oexp">Expect <b>active (running)</b>. Recover with <code>sudo systemctl restart pg-mcp-server</code>.</div>
+        </div>
+        <div class="opcard">
+          <div class="ol">Startup logs</div>
+          <code class="ocmd"><span class="pr">$ </span>journalctl -u pg-mcp-server -f</code>
+          <div class="oexp">Look for <b>OAuth enabled (Azure proxy…)</b> and <b>policy validated against DB: 5 tables, 2 templates</b>.</div>
+        </div>
+        <div class="opcard">
+          <div class="ol">Auth is enforced</div>
+          <code class="ocmd"><span class="pr">$ </span>curl -i https://smpgmcp.westus.cloudapp.azure.com/mcp/</code>
+          <div class="oexp">A request with no token must return <b>401 Unauthorized</b> — tools are unreachable without a JWT.</div>
+        </div>
+        <div class="opcard">
+          <div class="ol">Discovery is published</div>
+          <code class="ocmd"><span class="pr">$ </span>curl …/.well-known/oauth-protected-resource/mcp</code>
+          <div class="oexp">Returns OAuth metadata — the resource, the authorization server, and scope <b>pg.read</b>.</div>
+        </div>
+        <div class="opcard">
+          <div class="ol">HTTPS / Caddy</div>
+          <code class="ocmd"><span class="pr">$ </span>sudo systemctl reload caddy<span class="pr">  ·  </span>journalctl -u caddy -f</code>
+          <div class="oexp">Caddy auto-renews the Let's Encrypt cert; reload it after editing the <code>Caddyfile</code>.</div>
+        </div>
+        <div class="opcard">
+          <div class="ol">Database role</div>
+          <code class="ocmd"><span class="pr">$ </span>psql -U mcp_readonly -d mg_dwh -c "SELECT 1"</code>
+          <div class="oexp">SELECT works; any write fails with <b>cannot execute INSERT in a read-only transaction</b>.</div>
+        </div>
+      </div>
+      <div class="callout warn" style="margin-top:18px"><b>Before you change the connector:</b> a ChatGPT Business connector is <b>immutable after publish</b> — to change the server URL or OAuth settings you delete and recreate it. And keep <code>PGMCP_OAUTH_BASE_URL</code> exactly equal to the public host with no trailing slash, or discovery and redirects break.</div>
+    </section>
+
+    <!-- ───────── FOOTER ───────── -->
+    <footer>
+      <div class="eyebrow">Reference</div>
+      <p style="color:var(--ink-dim);font-size:14.5px;max-width:66ch;margin-bottom:20px">This guide mirrors the running implementation — the server code, the Caddy + systemd setup, the single Entra app, and the read-only Postgres role. The steps in section 05 are the build runbook; the commands above are day-two operations.</p>
+      <div class="ftnote">
+        SOURCE · specs/005-chatgpt-business-connector-vm-caddy.md<br>
+        BUILT ON · spec 003 (VM Postgres + synthetic data) · spec 004 Phase A (AzureProvider code)<br>
+        Interactive implementation guide — pg-mcp-server.
+      </div>
+    </footer>
+  </main>
+</div>
+
+<script>
+/* ════════════════ data ════════════════ */
+const ARCH = {
+  cg:{c:'var(--cg)',ic:'CG',t:'ChatGPT Business',sub:'developer-mode connector',
+    rows:[['Tier','Business'],['Mode','Developer mode'],['Server URL','https://…/mcp'],['Auth','OAuth (discovered)'],['Registers via','DCR / CIMD + PKCE(S256)']],
+    note:'A developer-mode custom connector. It reads OAuth settings *from the server* and registers itself dynamically — there is no Client ID/Secret to paste. Immutable after publish: to change the URL or auth you delete and recreate it.'},
+  caddy:{c:'var(--caddy)',ic:'CA',t:'Caddy',sub:'reverse proxy · :80 / :443',
+    rows:[['Listens','0.0.0.0:443 (+:80 ACME)'],['Cert','Let\'s Encrypt (auto)'],['Hostname','smpgmcp.westus.cloudapp.azure.com'],['Upstream','reverse_proxy 127.0.0.1:8000'],['Config','/etc/caddy/Caddyfile']],
+    note:'ChatGPT requires public HTTPS. Caddy auto-provisions and renews a free Let\'s Encrypt certificate for the cloudapp.azure.com DNS name and reverse-proxies everything to the localhost server — far less work than manual certs or nginx.'},
+  srv:{c:'var(--srv)',ic:'PX',t:'pg-mcp-server',sub:'FastMCP · AzureProvider OAuth proxy',
+    rows:[['Bind','127.0.0.1:8000 (localhost)'],['Service','systemd · pg-mcp-server.service'],['Run','uv run python main.py'],['Auth provider','AzureProvider (build_auth)'],['Restart','on-failure + on-boot']],
+    note:'build_auth() returns an AzureProvider whenever the four PGMCP_OAUTH_* proxy vars are set. It publishes the discovery + registration endpoints, mints FastMCP JWTs, and runs as a managed service so it survives crashes and reboots. Only Caddy can reach it — it never binds a public interface.'},
+  entra:{c:'var(--entra)',ic:'EN',t:'Microsoft Entra ID',sub:'one app registration',
+    rows:[['App','pg-mcp-server'],['Client ID','e66f762e-… '],['App ID URI','api://e66f762e-…'],['Scope','pg.read · Admins and users'],['Token version','2'],['Redirect URI','…/auth/callback']],
+    note:'A single Entra app registration. The pg.read scope stays at "Admins and users" so every user consents at first login (no admin pre-consent). requestedAccessTokenVersion=2 forces v2 tokens with the correct issuer.'},
+  pg:{c:'var(--pg)',ic:'DB',t:'PostgreSQL',sub:'mg_dwh · schema centric_8_plm',
+    rows:[['Reachable on','127.0.0.1:5432 only'],['Database','mg_dwh'],['Schema','centric_8_plm'],['Role','mcp_readonly'],['Grants','column-level SELECT'],['Data','synthetic · 200 styles']],
+    note:'Postgres is localhost-only — no VNet, no pg_hba edits, no public 5432. The mcp_readonly role has column-level SELECT grants and nothing else, so any INSERT/UPDATE/DROP fails with "cannot execute INSERT in a read-only transaction".'}
+};
+
+const STEPS = [
+  {t:'Discover the protected-resource metadata',from:'cg',to:'srv',via:true,verb:'GET',
+    path:'/.well-known/oauth-protected-resource/mcp',
+    plain:'ChatGPT asks the server, "Who guards you, and which scope do I need?" The request rides HTTPS into Caddy, which reverse-proxies it to the localhost server. This endpoint is public — no token required.',
+    wire:'200 OK\n{\n  "resource": "api://e66f762e-…",\n  "authorization_servers": [\n     "https://smpgmcp.westus.cloudapp.azure.com"\n  ],\n  "scopes_supported": ["api://e66f762e-…/pg.read"]\n}'},
+  {t:'Read the authorization-server metadata',from:'cg',to:'srv',via:true,verb:'GET',
+    path:'/.well-known/oauth-authorization-server',
+    plain:'Now ChatGPT learns the OAuth endpoints the proxy exposes — where to register, where to send the user to authorize, where to exchange the code for a token, and where the signing keys live.',
+    wire:'200 OK\n{\n  "issuer": "https://smpgmcp.westus.cloudapp.azure.com",\n  "registration_endpoint": "…/register",\n  "authorization_endpoint": "…/authorize",\n  "token_endpoint": "…/token",\n  "jwks_uri": "…/.well-known/jwks.json",\n  "code_challenge_methods_supported": ["S256"]\n}'},
+  {t:'Register dynamically (DCR / CIMD)',from:'cg',to:'srv',via:false,verb:'POST',
+    path:'/register',
+    plain:'Entra can\'t accept anonymous client registration, so the AzureProvider does it instead. ChatGPT registers itself (or presents a CIMD metadata-doc URL) and gets back a client_id scoped to the proxy. This is the gap the proxy exists to fill.',
+    wire:'→ { "client_name": "ChatGPT", "redirect_uris":\n     ["https://chatgpt.com/connector_platform_oauth_redirect"] }\n\n201 Created\n{ "client_id": "mcp_8f3c…", "token_endpoint_auth_method": "none" }'},
+  {t:'Authorize — ChatGPT\'s PKCE challenge',from:'cg',to:'srv',via:false,verb:'GET',
+    path:'/authorize?…&code_challenge=…&code_challenge_method=S256',
+    plain:'The user clicks "connect". ChatGPT opens /authorize with a PKCE code_challenge (SHA-256). The proxy stores that challenge, then generates its OWN, separate PKCE pair for the upstream leg — two independent PKCE flows running at once.',
+    wire:'GET /authorize\n  ?client_id=mcp_8f3c…\n  &redirect_uri=https://chatgpt.com/…redirect\n  &scope=api://e66f762e-…/pg.read\n  &code_challenge=E9Melhoa…   (client challenge, S256)\n  &state=xyz'},
+  {t:'Redirect upstream to Microsoft Entra',from:'srv',to:'entra',via:false,verb:'REDIRECT',
+    path:'login.microsoftonline.com/{tenant}/oauth2/v2.0/authorize',
+    plain:'The proxy redirects the browser to the real Entra authorize endpoint — using its own fixed client_id, its own redirect_uri (…/auth/callback), and its own proxy-generated PKCE challenge. Entra never sees ChatGPT\'s challenge.',
+    wire:'302 →\nhttps://login.microsoftonline.com/{tenant}/oauth2/v2.0/authorize\n  ?client_id=e66f762e-…           (the Entra app)\n  &redirect_uri=https://…/auth/callback\n  &scope=api://e66f762e-…/pg.read offline_access\n  &code_challenge=<proxy-challenge>&code_challenge_method=S256'},
+  {t:'User signs in & consents to pg.read',from:'entra',to:'cg',via:false,verb:'REDIRECT',
+    path:'Entra login + consent screen',
+    plain:'Entra shows the Microsoft login and the pg.read user-consent prompt (because the scope is "Admins and users"). On approval, Entra redirects back to the proxy\'s callback with an authorization code.',
+    wire:'User authenticates → consents: "pg-mcp-server wants to: Read-only\naccess to Postgres via MCP (pg.read)"  [Accept]\n\n302 → https://smpgmcp.westus.cloudapp.azure.com/auth/callback\n        ?code=<entra_code>&state=…'},
+  {t:'Callback → exchange the code with Entra',from:'srv',to:'entra',via:false,verb:'POST',
+    path:'/auth/callback  →  Entra /token',
+    plain:'Entra hits the proxy\'s /auth/callback. The proxy exchanges the code at Entra\'s token endpoint using its own stored code_verifier, receives a v2 access token, and validates it (issuer, audience, signature) against Entra\'s JWKS.',
+    wire:'POST https://login.microsoftonline.com/{tenant}/oauth2/v2.0/token\n  grant_type=authorization_code & code=<entra_code>\n  & code_verifier=<proxy_verifier> & client_secret=<app_secret>\n\n200 → { "access_token": "<entra v2 JWT>", "expires_in": 3599 }'},
+  {t:'Mint the FastMCP JWT & call a tool',from:'cg',to:'srv',via:false,verb:'BEARER',
+    path:'POST /token  →  then tools/call',
+    plain:'The proxy redirects ChatGPT back with its own code; ChatGPT posts it to /token with the matching code_verifier. The proxy validates the client PKCE and mints a FastMCP JWT (signed with PGMCP_OAUTH_JWT_SIGNING_KEY). From now on every tool call carries Authorization: Bearer <JWT> — and the server queries Postgres as mcp_readonly.',
+    wire:'POST /token  →  200 { "access_token":"<FastMCP JWT>", "token_type":"Bearer" }\n\nPOST /mcp   (tools/call)\n  Authorization: Bearer <FastMCP JWT>\n→ server validates JWT + scope pg.read → runs the tool → rows'}
+];
+
+const SAMPLES = [
+  {pass:6, ok:true,  title:"get_style_by_code('AW-71001-001-001')",
+   msg:'Template tool — parameters are bound by psycopg, never concatenated. SQL was validated against the whitelist at startup. Reaches Postgres and returns the row.',
+   rows:'[ { "code":"AW-71001-001-001", "node_name":"…", "fob_calc":"…",\n    "sample_cost":"…", "collection":"…" } ]'},
+  {pass:6, ok:true,  title:'query("SELECT code, fob_calc FROM styles")',
+   msg:'A single SELECT over a whitelisted table and whitelisted columns. The AST validator parses it (pglast), a LIMIT 200 is appended, and it runs read-only as mcp_readonly.',
+   rows:'[ { "code":"AW-71001-001-001", "fob_calc":"12.40" }, … 200 rows max ]'},
+  {pass:2, ok:false, stop:2, title:'query("SELECT * FROM styles")',
+   msg:'Rejected by the AST validator before any SQL runs: "SELECT * is not allowed; name columns explicitly". The model must enumerate columns so it can never reach a hidden field.',
+   rows:'ValueError: query rejected: SELECT * is not allowed; name columns explicitly'},
+  {pass:2, ok:false, stop:2, title:'query("SELECT ssn FROM styles")',
+   msg:'"ssn" isn\'t in policy.yaml. The AST validator rejects it: "column(s) not allowed: [\'ssn\']". Even if this layer were bypassed, mcp_readonly has no GRANT on it — the DB would reject it too.',
+   rows:'ValueError: query rejected: column(s) not allowed: [\'ssn\']'},
+  {pass:2, ok:false, stop:2, title:'query("INSERT INTO styles …")',
+   msg:'Not a SELECT — the AST validator rejects it: "only SELECT statements are allowed". And the backstop holds regardless: the connection is read-only and mcp_readonly cannot write — "cannot execute INSERT in a read-only transaction".',
+   rows:'ValueError: query rejected: only SELECT statements are allowed'},
+  {pass:0, ok:false, stop:0, title:'tools/call · no Bearer token',
+   msg:'No valid FastMCP JWT, so the request never gets past the front door. Only the OAuth discovery and registration endpoints are public; everything else is 401.',
+   rows:'HTTP 401 Unauthorized  ·  WWW-Authenticate: Bearer'}
+];
+
+const TOOLS = [
+  {sig:'list_accessible_tables()',d:'Returns the filtered catalog — only whitelisted tables and their columns (with types). Sensitive / unlisted fields never appear.',
+   more:'Source: policy.filtered_schema(). Tables exposed: category1s, category2s, collections, seasons, styles.'},
+  {sig:'describe_table(<span class="p">table: str</span>)',d:'The allowed columns and data types of one whitelisted table. Unknown / non-whitelisted tables raise an error.',
+   more:'e.g. describe_table("styles") → { schema:"centric_8_plm", table:"styles", columns:[…] }'},
+  {sig:'query(<span class="p">sql: str</span>)',d:'Ad-hoc constrained open query. Accepts a single read-only SELECT over whitelisted tables/columns; a LIMIT is enforced automatically.',
+   more:'Rejected: SELECT *, writes, multiple statements, non-whitelisted refs. Parsed to an AST with pglast — never regex.'},
+  {sig:'get_style_by_code(<span class="p">code: str</span>)',d:'Template tool. One product style\'s core details (incl. cost fields) by exact style code.',
+   more:'Generated from the get_style_by_code template in policy.yaml. Params bound by psycopg. Returns id, code, node_name, product_type, fob_calc, sample_cost, …'},
+  {sig:'list_styles_in_collection(<span class="p">collection: str, limit=50</span>)',d:'Template tool. Styles in a given collection (by code/name), most recent first.',
+   more:'limit is 1–200 (default 50). e.g. list_styles_in_collection("ALICE\'S ADVENTURES IN WONDERLAND").'}
+];
+
+const TASKS = [
+  {n:1,who:'code',t:'Server OAuth code (Phase A)',b:'From spec 004: auth.py build_auth() returns an AzureProvider when the four proxy vars are set; new config vars added; backward-compatible with token-only and no-auth modes.',v:'pytest / ruff / mypy clean.'},
+  {n:2,who:'DB',t:'VM Postgres + synthetic data + role',b:'From spec 003: mg_dwh.centric_8_plm created, 200 synthetic styles loaded, column-scoped mcp_readonly role applied (read-only).',v:'SELECT works as mcp_readonly; INSERT fails with "cannot execute INSERT in a read-only transaction".'},
+  {n:3,who:'Azure',t:'Public DNS name',b:'Gave the VM\'s Public IP a DNS name label "smpgmcp" → smpgmcp.westus.cloudapp.azure.com (free).',v:'The FQDN resolves to the VM\'s public IP.'},
+  {n:4,who:'Azure',t:'Open ports 80 + 443',b:'NSG vm-pgmcp-test-nsg inbound: allow TCP 80 (ACME HTTP-01) and 443 (HTTPS) from Any. SSH 22 stays; 5432 / 8000 never exposed.',v:'NSG lists the 80 + 443 allow rules.'},
+  {n:5,who:'VM',t:'Install & configure Caddy',b:'Installed Caddy; /etc/caddy/Caddyfile set to <host> { reverse_proxy 127.0.0.1:8000 }; reloaded → Let\'s Encrypt cert obtained automatically.',v:'Caddy serves valid HTTPS for the hostname.'},
+  {n:6,who:'Entra',t:'Register the Entra app',b:'Registered pg-mcp-server; Expose-an-API api://<client-id> + scope pg.read; manifest requestedAccessTokenVersion=2; created a client secret; redirect URI https://<host>/auth/callback; consent = "Admins and users".',v:'Manifest shows v2 + the pg.read scope; redirect URI registered.'},
+  {n:7,who:'VM',t:'Write the .env',b:'PGMCP_DATABASE_URL (mcp_readonly@127.0.0.1/mg_dwh), PGMCP_HOST=127.0.0.1, PGMCP_OAUTH_CLIENT_ID / _SECRET / _TENANT_ID, PGMCP_OAUTH_BASE_URL=https://<host>, PGMCP_OAUTH_JWT_SIGNING_KEY; chmod 600.',v:'get_settings() loads with no error.'},
+  {n:8,who:'VM',t:'systemd service',b:'pg-mcp-server.service runs uv run python main.py; systemctl enable --now. Restarts on failure and on reboot.',v:'systemctl status = active (running); journal logs "OAuth enabled (Azure proxy…)" and "policy validated against DB: 5 tables, 2 templates".'},
+  {n:9,who:'ChatGPT',t:'Create the connector',b:'Developer mode → Create → Server URL https://<host>/mcp, Authentication = OAuth (discovered). Open a dev-mode chat, complete the Entra login, consent to pg.read.',v:'All 5 tools list; get_style_by_code + list_styles_in_collection return synthetic rows.'}
+];
+
+const CFG = {
+  caddy:{fn:'/etc/caddy/Caddyfile',html:
+`<span class="v">smpgmcp.westus.cloudapp.azure.com</span> {
+    <span class="k">reverse_proxy</span> 127.0.0.1:8000
+}
+<span class="c"># Caddy auto-issues + renews a Let's Encrypt cert for this host.</span>
+<span class="c"># Only :80 (ACME) and :443 are public; the app stays on localhost.</span>`},
+  env:{fn:'~/pg-mcp-server/.env   (chmod 600)',html:
+`<span class="c"># ── database: the read-only role, over localhost ──</span>
+<span class="k">PGMCP_DATABASE_URL</span>=<span class="s">postgresql://mcp_readonly:&lt;password&gt;@127.0.0.1:5432/mg_dwh</span>
+<span class="k">PGMCP_HOST</span>=<span class="s">127.0.0.1</span>   <span class="c"># bind localhost — only Caddy is public</span>
+
+<span class="c"># ── OAuth proxy (AzureProvider) — these four flip on AzureProvider ──</span>
+<span class="k">PGMCP_OAUTH_CLIENT_ID</span>=<span class="s">e66f762e-…</span>
+<span class="k">PGMCP_OAUTH_CLIENT_SECRET</span>=<span class="s">&lt;entra-app-secret&gt;</span>
+<span class="k">PGMCP_OAUTH_TENANT_ID</span>=<span class="s">&lt;tenant-id&gt;</span>
+<span class="k">PGMCP_OAUTH_BASE_URL</span>=<span class="s">https://smpgmcp.westus.cloudapp.azure.com</span>  <span class="c"># no trailing slash</span>
+<span class="k">PGMCP_OAUTH_JWT_SIGNING_KEY</span>=<span class="s">&lt;random 32+ bytes&gt;</span>  <span class="c"># stable across restarts</span>`},
+  systemd:{fn:'/etc/systemd/system/pg-mcp-server.service',html:
+`<span class="v">[Unit]</span>
+<span class="k">Description</span>=pg-mcp-server (FastMCP · Postgres MCP)
+<span class="k">After</span>=network-online.target postgresql.service
+<span class="k">Wants</span>=postgresql.service
+
+<span class="v">[Service]</span>
+<span class="k">Type</span>=simple
+<span class="k">User</span>=azureuser
+<span class="k">WorkingDirectory</span>=/home/azureuser/pg-mcp-server
+<span class="k">ExecStart</span>=/home/azureuser/.local/bin/uv run python main.py
+<span class="k">Restart</span>=on-failure
+<span class="k">RestartSec</span>=3
+
+<span class="v">[Install]</span>
+<span class="k">WantedBy</span>=multi-user.target
+<span class="c"># sudo systemctl enable --now pg-mcp-server</span>`},
+  entra:{fn:'Entra ID · App registration "pg-mcp-server"',html:
+`<span class="k">Application (client) ID</span> : <span class="s">e66f762e-…</span>
+<span class="k">Directory (tenant) ID</span>   : <span class="s">&lt;tenant-id&gt;</span>
+
+<span class="c">▸ Expose an API</span>
+  Application ID URI         : <span class="s">api://e66f762e-…</span>
+  Scope                      : <span class="s">pg.read</span>
+  Who can consent            : <span class="s">Admins and users</span>   <span class="c"># → per-user consent</span>
+
+<span class="c">▸ Manifest</span>
+  requestedAccessTokenVersion: <span class="s">2</span>                  <span class="c"># v2 tokens, correct issuer</span>
+
+<span class="c">▸ Certificates &amp; secrets</span>
+  Client secret              : <span class="s">&lt;copy once&gt;</span>  →  PGMCP_OAUTH_CLIENT_SECRET
+
+<span class="c">▸ Authentication → Web → Redirect URI</span>
+  <span class="s">https://smpgmcp.westus.cloudapp.azure.com/auth/callback</span>`}
+};
+
+/* ════════════════ render: architecture ════════════════ */
+const archDetail = document.getElementById('archdetail');
+function renderArch(key){
+  const a = ARCH[key];
+  archDetail.style.setProperty('--dc', a.c);
+  archDetail.innerHTML =
+    `<div class="dhead"><div class="dic" style="--dc:${a.c}">${a.ic}</div>
+       <div><h3>${a.t}</h3><div class="dsub" style="--dc:${a.c}">${a.sub}</div></div></div>`
+    + a.rows.map(r=>`<div class="krow"><span class="kk">${r[0]}</span><span class="kv">${r[1]}</span></div>`).join('')
+    + `<div class="dnote">${a.note}</div>`;
+}
+document.querySelectorAll('.node').forEach(n=>{
+  n.addEventListener('click',()=>{
+    document.querySelectorAll('.node').forEach(x=>x.classList.remove('sel'));
+    n.classList.add('sel');
+    renderArch(n.dataset.node);
+  });
+});
+renderArch('cg');
+
+/* ════════════════ render: OAuth stepper ════════════════ */
+let cur = 0, playing = false, timer = null;
+const svg = document.getElementById('svg');
+const lanerow = document.getElementById('lanerow');
+const dotsEl = document.getElementById('dots');
+STEPS.forEach((_,i)=>{const d=document.createElement('i'); d.dataset.i=i; if(i===0)d.classList.add('on'); d.addEventListener('click',()=>go(i)); dotsEl.appendChild(d);});
+document.getElementById('steptot').textContent = '/ '+STEPS.length;
+
+function actorEl(a){return lanerow.querySelector(`.actor[data-a="${a}"]`);}
+function drawArrow(){
+  svg.querySelectorAll('path.flow,circle.packet').forEach(e=>e.remove());
+  const s = STEPS[cur];
+  const wrap = svg.getBoundingClientRect();
+  const from = actorEl(s.from).getBoundingClientRect();
+  const to   = actorEl(s.to).getBoundingClientRect();
+  const y = from.bottom - wrap.top + 16;
+  const x1 = from.left + from.width/2 - wrap.left;
+  const x2 = to.left + to.width/2 - wrap.left;
+  const dir = x2>x1?1:-1;
+  const dip = 26;
+  const d = `M ${x1} ${from.bottom-wrap.top-4} C ${x1} ${y+dip}, ${x2} ${y+dip}, ${x2} ${to.bottom-wrap.top-4}`;
+  const p = document.createElementNS('http://www.w3.org/2000/svg','path');
+  p.setAttribute('d',d); p.setAttribute('class','flow');
+  p.setAttribute('fill','none'); p.setAttribute('stroke','var(--amber)');
+  p.setAttribute('stroke-width','2'); p.setAttribute('marker-end','url(#ah)');
+  p.setAttribute('stroke-dasharray','6 5');
+  svg.appendChild(p);
+  const len = p.getTotalLength();
+  p.style.strokeDashoffset = len; p.style.transition='stroke-dashoffset .6s ease';
+  requestAnimationFrame(()=>{p.style.strokeDashoffset = 0;});
+  // travelling packet
+  const c = document.createElementNS('http://www.w3.org/2000/svg','circle');
+  c.setAttribute('r','4.5'); c.setAttribute('class','packet'); svg.appendChild(c);
+  const t0 = performance.now(), dur=650;
+  function move(t){const k=Math.min(1,(t-t0)/dur); const pt=p.getPointAtLength(len*k); c.setAttribute('cx',pt.x); c.setAttribute('cy',pt.y); if(k<1)requestAnimationFrame(move); else c.remove();}
+  requestAnimationFrame(move);
+}
+function render(){
+  const s = STEPS[cur];
+  // actors
+  lanerow.querySelectorAll('.actor').forEach(a=>{a.classList.remove('on'); a.classList.add('dim');});
+  const onset = new Set([s.from,s.to]); if(s.via) onset.add('caddy');
+  onset.forEach(a=>{const el=actorEl(a); if(el){el.classList.add('on'); el.classList.remove('dim');}});
+  // body
+  document.getElementById('stepnum').firstChild.textContent = cur+1;
+  document.getElementById('stitle').textContent = s.t;
+  const ac = `var(--${s.from})`;
+  document.getElementById('sflow').innerHTML =
+    `<b style="--ac1:${ac}">${labelOf(s.from)}</b> ${s.via?'→ Caddy ':''}→ <b style="--ac1:var(--${s.to})">${labelOf(s.to)}</b>`;
+  document.getElementById('splain').textContent = s.plain;
+  const vb = document.getElementById('sverb'); vb.className='verb '+s.verb; vb.textContent=s.verb;
+  document.getElementById('spath').textContent = s.path;
+  document.getElementById('swire').textContent = s.wire;
+  // controls
+  document.getElementById('prev').disabled = cur===0;
+  document.getElementById('next').disabled = cur===STEPS.length-1 && !playing;
+  document.getElementById('prog').style.width = ((cur+1)/STEPS.length*100)+'%';
+  dotsEl.querySelectorAll('i').forEach((d,i)=>{d.classList.toggle('on',i===cur); d.classList.toggle('done',i<cur);});
+  drawArrow();
+}
+function labelOf(a){return {cg:'ChatGPT',caddy:'Caddy',srv:'AzureProvider',entra:'Entra',pg:'Postgres'}[a];}
+function go(i){cur=(i+STEPS.length)%STEPS.length; render();}
+document.getElementById('next').addEventListener('click',()=>{if(cur<STEPS.length-1)go(cur+1); else go(0);});
+document.getElementById('prev').addEventListener('click',()=>go(cur-1));
+const playBtn = document.getElementById('play');
+playBtn.addEventListener('click',()=>{
+  playing=!playing; playBtn.textContent = playing?'⏸ Pause':'▶ Auto-play'; playBtn.classList.toggle('primary',playing);
+  if(playing){timer=setInterval(()=>{cur=(cur+1)%STEPS.length; render(); if(cur===STEPS.length-1){/*loop*/}},2600);}
+  else clearInterval(timer);
+});
+render();
+window.addEventListener('resize',()=>{clearTimeout(window._rz); window._rz=setTimeout(drawArrow,120);});
+
+/* ════════════════ render: security gates ════════════════ */
+const gates = [...document.querySelectorAll('.gate')];
+const verdict = document.getElementById('verdict');
+function runSample(idx){
+  const s = SAMPLES[idx];
+  document.querySelectorAll('.sample').forEach(b=>b.classList.toggle('sel',+b.dataset.s===idx));
+  gates.forEach(g=>{g.classList.remove('pass','block'); g.querySelector('.gx').textContent='';});
+  verdict.className='verdict'; verdict.innerHTML='';
+  const reach = s.ok ? gates.length-1 : s.stop;
+  let i=0;
+  (function light(){
+    if(i<=reach){
+      const g=gates[i];
+      if(!s.ok && i===s.stop){ g.classList.add('block'); g.querySelector('.gx').textContent='✕ rejected'; finish(); }
+      else { g.classList.add('pass'); g.querySelector('.gx').textContent = (i===gates.length-1?'✓ data':'✓ pass'); i++; setTimeout(light,180); }
+    } else finish();
+  })();
+  function finish(){
+    verdict.classList.add(s.ok?'ok':'no');
+    verdict.innerHTML = `<b style="color:${s.ok?'var(--ok)':'var(--danger)'}">${s.ok?'✓ Allowed — rows returned':'✕ Blocked at gate '+(s.stop+1)}</b>
+      <div style="margin-top:7px;color:var(--ink-dim)">${s.msg}</div>
+      <div class="vrows">${s.rows.replace(/</g,'&lt;')}</div>`;
+  }
+}
+document.querySelectorAll('.sample').forEach(b=>b.addEventListener('click',()=>runSample(+b.dataset.s)));
+runSample(0);
+
+/* ════════════════ render: tools ════════════════ */
+document.getElementById('toolgrid').innerHTML = TOOLS.map(t=>
+  `<div class="tool"><div class="sig">${t.sig}</div><div class="td">${t.d}</div><div class="more"><span class="ex">↳ </span>${t.more}</div></div>`).join('');
+document.querySelectorAll('.tool').forEach(t=>t.addEventListener('click',()=>t.classList.toggle('open')));
+
+/* ════════════════ render: tasks ════════════════ */
+document.getElementById('tasklist').innerHTML = TASKS.map(t=>
+  `<details class="tk"><summary>
+      <span class="chk">${t.n}</span><span class="ttl">${t.t}</span>
+      <span class="who">${t.who}</span><span class="caret">▸</span>
+    </summary>
+    <div class="tkbody">${t.b}<div class="verify"><b>Verify ·</b> ${t.v}</div></div>
+  </details>`).join('');
+
+/* ════════════════ render: config tabs ════════════════ */
+const panes = document.getElementById('cfgpanes');
+panes.innerHTML = Object.entries(CFG).map(([k,c],i)=>
+  `<div class="codeblock${i?' hidden':''}" data-pane="${k}">
+     <div class="cbh"><span class="dots3"><i style="background:#ff5f56"></i><i style="background:#ffbd2e"></i><i style="background:#27c93f"></i></span>
+       <span class="fn">${c.fn}</span><button class="copy">copy</button></div>
+     <pre>${c.html}</pre>
+   </div>`).join('');
+document.querySelectorAll('#cfgtabs .tab').forEach(tab=>tab.addEventListener('click',()=>{
+  document.querySelectorAll('#cfgtabs .tab').forEach(t=>t.classList.remove('on')); tab.classList.add('on');
+  document.querySelectorAll('[data-pane]').forEach(p=>p.classList.toggle('hidden',p.dataset.pane!==tab.dataset.c));
+}));
+panes.addEventListener('click',e=>{
+  if(!e.target.classList.contains('copy'))return;
+  const txt = e.target.closest('.codeblock').querySelector('pre').innerText;
+  navigator.clipboard.writeText(txt).then(()=>{const o=e.target.textContent; e.target.textContent='copied ✓'; setTimeout(()=>e.target.textContent=o,1400);});
+});
+
+/* ════════════════ nav: scroll-spy + mobile ════════════════ */
+const links = [...document.querySelectorAll('.navlink')];
+const secs = links.map(l=>document.querySelector(l.getAttribute('href')));
+const spy = new IntersectionObserver(es=>{
+  es.forEach(e=>{ if(e.isIntersecting){const id='#'+e.target.id;
+    links.forEach(l=>l.classList.toggle('active',l.getAttribute('href')===id)); }});
+},{rootMargin:'-45% 0px -50% 0px'});
+secs.forEach(s=>s&&spy.observe(s));
+const side=document.getElementById('side'), mb=document.getElementById('menubtn');
+mb.addEventListener('click',()=>side.classList.toggle('open'));
+links.forEach(l=>l.addEventListener('click',()=>side.classList.remove('open')));
+
+/* ════════════════ mermaid (lazy, on details open) ════════════════ */
+let mmLoaded=false, mmMod=null;
+async function ensureMermaid(){
+  if(mmLoaded)return mmMod;
+  mmMod = (await import('https://cdn.jsdelivr.net/npm/mermaid@11/dist/mermaid.esm.min.mjs')).default;
+  mmMod.initialize({startOnLoad:false,theme:'dark',securityLevel:'loose',
+    themeVariables:{fontFamily:'JetBrains Mono, monospace',primaryColor:'#161b23',primaryTextColor:'#e7ecf3',
+      primaryBorderColor:'#333d4d',lineColor:'#6c7888',secondaryColor:'#11151c',tertiaryColor:'#0a0c10'}});
+  mmLoaded=true; return mmMod;
+}
+document.querySelectorAll('details.blueprint').forEach(d=>{
+  d.addEventListener('toggle',async()=>{
+    if(!d.open)return;
+    const node=d.querySelector('.mermaid');
+    if(node.dataset.processed)return;
+    const m=await ensureMermaid();
+    try{const {svg}=await m.render('mm'+Math.random().toString(36).slice(2),node.textContent.trim());
+      node.innerHTML=svg; node.dataset.processed='1';}catch(err){node.textContent='diagram unavailable offline';}
+  });
+});
+</script>
+</body>
+</html>
