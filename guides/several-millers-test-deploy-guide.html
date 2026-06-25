@@ -3,8 +3,8 @@
 <head>
 <meta charset="UTF-8" />
 <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-<title>Several Millers Sandbox · Synthetic Data, SSH Tunnel & OAuth Code — Runbook (Specs 003 + 004)</title>
-<meta name="description" content="How Several Millers' sandbox was built: synthetic data on an Azure VM with a private SSH-tunnel endpoint (003), the AzureProvider OAuth code upgrade, and the blocked Container Apps plan (004)." />
+<title>Several Millers Test Sandbox · Synthetic Data + Private Endpoint</title>
+<meta name="description" content="The Several Millers test sandbox for the Postgres MCP server: synthetic data on a locked-down Azure VM, reached only through an SSH tunnel, with the server's three authentication modes." />
 <link rel="preconnect" href="https://fonts.googleapis.com" />
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
 <link href="https://fonts.googleapis.com/css2?family=Bricolage+Grotesque:opsz,wght@12..96,500;12..96,700;12..96,800&family=Hanken+Grotesk:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500;700&display=swap" rel="stylesheet" />
@@ -316,21 +316,20 @@ footer{border-top:1px solid var(--line);margin-top:90px;padding-top:34px;color:v
       <div class="dot"></div>
       <div>
         <b>Several Millers</b>
-        <span>sandbox · 003+004</span>
+        <span>sandbox · synthetic-data test</span>
       </div>
     </div>
     <a class="navlink active" href="#overview"><span class="num">00</span>Overview</a>
     <a class="navlink" href="#pipeline"><span class="num">01</span>Synthetic-data pipeline</a>
     <a class="navlink" href="#tunnel"><span class="num">02</span>No-auth + SSH tunnel</a>
-    <a class="navlink" href="#authmode"><span class="num">03</span>The auth-mode upgrade</a>
-    <a class="navlink" href="#blocked"><span class="num">04</span>Container Apps &amp; the blocker</a>
+    <a class="navlink" href="#authmode"><span class="num">03</span>Authentication modes</a>
+    <a class="navlink" href="#blocked"><span class="num">04</span>Taking the sandbox public</a>
     <a class="navlink" href="#build"><span class="num">05</span>Build checklist</a>
     <a class="navlink" href="#operate"><span class="num">06</span>Operate &amp; verify</a>
     <div class="meta">
-      RUNBOOK · <b>SM sandbox</b><br>
+      SANDBOX · <b>test environment</b><br>
       VM · vm-pgmcp-test<br>
       DATA · synthetic (200 styles)<br>
-      003 · complete · 004 · Phase A<br>
       RG · Several_Millers_Default
     </div>
   </nav>
@@ -339,23 +338,21 @@ footer{border-top:1px solid var(--line);margin-top:90px;padding-top:34px;color:v
     <!-- HERO -->
     <section id="overview" class="hero">
       <div class="badges">
-        <span class="pill live"><span class="blip"></span>003 · interim test deploy · complete</span>
-        <span class="pill warn">004 · Phase A done · B–D blocked</span>
-        <span class="pill">synthetic data only</span>
-        <span class="pill">no real row leaves the source</span>
+        <span class="pill live"><span class="blip"></span>Synthetic data only</span>
+        <span class="pill">Private — SSH tunnel only</span>
+        <span class="pill">Read-only database role</span>
       </div>
-      <h1>Several Millers sandbox:<br><span class="grad">synthetic data,</span><br>SSH tunnel, OAuth code.</h1>
+      <h1>The Several Millers<br><span class="grad">test sandbox</span><br>for the MCP server.</h1>
       <p class="sub">
-        Two chapters of the road to a live connector. <b>003</b> stands the server up <b>now</b> on
-        an Azure VM with <code>synthetic data</code>, <b>no auth</b>, bound to <code>127.0.0.1</code> and
-        reached only through an <code>ssh -L</code> tunnel — proving the whole stack without exposing
-        anything. <b>004</b> adds the OAuth-proxy code (the <code>AzureProvider</code> path) and plans a
-        Container Apps deploy — which got <b>blocked</b> and handed off to spec 005.
+        The real Postgres MCP server runs against <code>synthetic data</code> on a locked-down Azure VM.
+        It binds <code>127.0.0.1</code> with no authentication and is reached only by forwarding the port
+        over an <code>ssh -L</code> tunnel, so the whole stack can be exercised without exposing anything
+        publicly and without putting a single real row on the VM.
       </p>
 
       <div class="factgrid">
         <div class="fact"><div class="k">VM</div><div class="v">vm-pgmcp-test<small>Ubuntu 24.04 · Standard_B2s</small></div></div>
-        <div class="fact"><div class="k">Inbound (003)</div><div class="v">SSH 22 only<small>no 5432 / 8000</small></div></div>
+        <div class="fact"><div class="k">Inbound</div><div class="v">SSH 22 only<small>no 5432 / 8000</small></div></div>
         <div class="fact"><div class="k">Endpoint</div><div class="v">127.0.0.1:8000<small>no-auth · /mcp/</small></div></div>
         <div class="fact"><div class="k">Reached via</div><div class="v">ssh -L<small>tunnel only</small></div></div>
         <div class="fact"><div class="k">Database</div><div class="v">mg_dwh<small>centric_8_plm · 200 styles</small></div></div>
@@ -365,32 +362,32 @@ footer{border-top:1px solid var(--line);margin-top:90px;padding-top:34px;color:v
       <div class="scrollcue"><span class="ln"></span>SCROLL TO BEGIN THE WALKTHROUGH</div>
     </section>
 
-    <!-- WHY TWO CHAPTERS -->
+    <!-- HOW IT'S WIRED -->
     <section id="why">
       <div class="eyebrow">The shape of it</div>
-      <h2 class="sec">Why these two specs go together</h2>
-      <p class="lead">003 is the <b>interim stand-in</b> for the blocked production connector — it
-        exercises the real server code against fake data, privately. 004 is the <b>auth + cloud step</b>
-        that builds on it: the code landed (Phase A), but the cloud deploy hit a permissions wall.</p>
+      <h2 class="sec">How the sandbox is wired</h2>
+      <p class="lead">The sandbox runs the production server unchanged against fake data on a private VM.
+        Two things make it safe to leave running: real data never reaches the VM, and the endpoint is
+        never exposed to the internet.</p>
       <div class="grid2">
         <div class="card" style="border-color:rgba(55,211,154,.4)">
-          <div class="eyebrow" style="color:var(--ok)">Spec 003 · complete</div>
-          <h3 style="font-family:var(--disp);font-size:18px;margin-bottom:10px">Interim test deploy</h3>
+          <div class="eyebrow" style="color:var(--ok)">Synthetic data, private endpoint</div>
+          <h3 style="font-family:var(--disp);font-size:18px;margin-bottom:10px">The test environment</h3>
           <ul style="list-style:none;display:flex;flex-direction:column;gap:9px;font-size:13.5px;color:var(--ink-dim)">
-            <li>✓ Synthetic dummy data of the same <i>shape</i> as real PLM rows</li>
-            <li>✓ No-auth, bound to <code>127.0.0.1</code>, reached over an SSH tunnel</li>
-            <li>✓ Column-scoped <code>mcp_readonly</code> role is still the DB backstop</li>
+            <li>✓ Synthetic rows of the same <i>shape</i> as real PLM data</li>
+            <li>✓ No auth, bound to <code>127.0.0.1</code>, reached over an SSH tunnel</li>
+            <li>✓ Column-scoped <code>mcp_readonly</code> role is the database backstop</li>
             <li>✓ <code>smoke_test.py</code> drives every tool → 9/9</li>
           </ul>
         </div>
         <div class="card">
-          <div class="eyebrow" style="color:var(--srv)">Spec 004 · partial</div>
-          <h3 style="font-family:var(--disp);font-size:18px;margin-bottom:10px">OAuth proxy + cloud</h3>
+          <div class="eyebrow" style="color:var(--srv)">Same code, three auth modes</div>
+          <h3 style="font-family:var(--disp);font-size:18px;margin-bottom:10px">Auth is config, not a rebuild</h3>
           <ul style="list-style:none;display:flex;flex-direction:column;gap:9px;font-size:13.5px;color:var(--ink-dim)">
-            <li>✓ Phase A: <code>build_auth()</code> grows an <code>AzureProvider</code> path (A1–A5)</li>
-            <li>✓ Backward-compatible: no OAuth vars → 003 still works unchanged</li>
-            <li>✗ Phase B–D: Azure Container Apps deploy — <b style="color:var(--danger)">blocked</b></li>
-            <li>→ Superseded by <b>spec 005</b> (server on the VM + Caddy)</li>
+            <li>✓ <code>build_auth()</code> picks the mode from environment variables alone</li>
+            <li>✓ No OAuth vars set → unauthenticated, for local and private testing</li>
+            <li>✓ Proxy vars set → <code>AzureProvider</code> (ChatGPT signs in through Entra)</li>
+            <li>✓ Token vars set → <code>JWTVerifier</code> (validates bearer tokens)</li>
           </ul>
         </div>
       </div>
@@ -398,11 +395,11 @@ footer{border-top:1px solid var(--line);margin-top:90px;padding-top:34px;color:v
 
     <!-- PIPELINE -->
     <section id="pipeline">
-      <div class="eyebrow">01 · Spec 003 · data</div>
+      <div class="eyebrow">01 · Synthetic data</div>
       <h2 class="sec">The synthetic-data pipeline</h2>
-      <p class="lead">Real data is sampled <b>locally only</b> to learn value <i>shapes</i>; synthetic data
-        of the same shape is the only thing that travels to the VM. <b>Step through</b> the six stages —
-        the invariant that holds the whole way: <b>no real row ever reaches the VM</b>.</p>
+      <p class="lead">Real data is sampled <b>locally only</b>, to learn the <i>shape</i> of its values.
+        Synthetic data of the same shape is the only thing that travels to the VM. Step through the six
+        stages below. No real row reaches the VM at any point.</p>
 
       <div class="stage">
         <div class="lanes">
@@ -452,7 +449,7 @@ footer{border-top:1px solid var(--line);margin-top:90px;padding-top:34px;color:v
 
     <!-- TUNNEL -->
     <section id="tunnel">
-      <div class="eyebrow">02 · Spec 003 · topology</div>
+      <div class="eyebrow">02 · Private topology</div>
       <h2 class="sec">No-auth, behind an SSH tunnel</h2>
       <p class="lead">An unauthenticated DB-query endpoint must never be public. So the server binds
         <code>127.0.0.1:8000</code>, the VM opens <b>SSH (22) only</b>, and the only way to reach the
@@ -514,12 +511,12 @@ graph LR
 
     <!-- AUTH MODE -->
     <section id="authmode">
-      <div class="eyebrow">03 · Spec 004 · Phase A</div>
-      <h2 class="sec">The auth-mode upgrade</h2>
-      <p class="lead">Phase A taught the server three ways to authenticate — picked at startup by
-        <code>build_auth()</code>, purely from which environment variables are set. <b>Toggle the env-var
-        groups</b> and watch the exact branch fire. This is why 003's no-auth run and 004/005's OAuth
-        run are the <i>same code</i>.</p>
+      <div class="eyebrow">03 · Authentication modes</div>
+      <h2 class="sec">Three ways to authenticate</h2>
+      <p class="lead">The server has three authentication modes, picked at startup by <code>build_auth()</code>
+        from which environment variables are set. Toggle the env-var groups below and watch the exact
+        branch fire. The sandbox's unauthenticated run and a full OAuth run are the <i>same code</i> —
+        only the configuration differs.</p>
 
       <div class="authwrap">
         <div class="toggles">
@@ -563,54 +560,44 @@ graph LR
       </div>
     </section>
 
-    <!-- BLOCKED -->
+    <!-- TAKING IT PUBLIC -->
     <section id="blocked">
-      <div class="eyebrow">04 · Spec 004 · Phase B–D</div>
-      <h2 class="sec">The Container Apps plan — and the wall</h2>
-      <p class="lead">Phase A's code targeted <b>Azure Container Apps</b> (to mirror the client's own
-        architecture). The intended topology was fully specified — then a single subscription-level
-        permission stopped it cold.</p>
+      <div class="eyebrow">04 · Beyond the sandbox</div>
+      <h2 class="sec">Taking the sandbox public</h2>
+      <p class="lead">The sandbox is deliberately private: no auth, localhost-only, reached over SSH.
+        Exposing the same server for real use takes two changes — a public HTTPS front end, and switching
+        the server out of no-auth into its OAuth-proxy mode so users sign in through Entra.</p>
 
       <div class="tools" style="margin-bottom:18px">
-        <div class="tool"><div class="sig">ACR + az acr build</div><div class="td">Build <code>pg-mcp-server:latest</code> server-side (no local Docker); pull via the ACR admin user.</div></div>
-        <div class="tool"><div class="sig">/27 delegated subnet</div><div class="td"><code>aca-infra</code> delegated to <code>Microsoft.App/environments</code>; NSG opens VM <code>5432</code> to that CIDR.</div></div>
-        <div class="tool"><div class="sig">ACA env · External ingress</div><div class="td">VNet-integrated workload-profiles env, target port <code>8000</code>, public HTTPS so ChatGPT can reach it.</div></div>
-        <div class="tool"><div class="sig">Key Vault · access-policy</div><div class="td">DB URL + client secret in the vault; the app's <b>system-assigned managed identity</b> gets <i>Get</i> via an access policy.</div></div>
-        <div class="tool"><div class="sig">Postgres opens to the VNet</div><div class="td"><code>listen_addresses</code> + <code>pg_hba</code> for the ACA subnet; the VM gets a static private IP.</div></div>
-        <div class="tool"><div class="sig">Single Entra app</div><div class="td"><code>api://&lt;id&gt;</code> + scope <code>pg.read</code>, manifest v2, client secret, redirect <code>/auth/callback</code>; DCR/CIMD + PKCE.</div></div>
+        <div class="tool"><div class="sig">Public DNS name</div><div class="td">Give the VM a stable public hostname so a certificate can be issued for it and ChatGPT has a fixed URL to connect to.</div></div>
+        <div class="tool"><div class="sig">Open 80 + 443</div><div class="td">Add inbound NSG rules for HTTP <code>80</code> (certificate challenge) and HTTPS <code>443</code>. The endpoint stops being SSH-only.</div></div>
+        <div class="tool"><div class="sig">HTTPS reverse proxy</div><div class="td">A reverse proxy terminates TLS on <code>443</code> and forwards to the server on <code>127.0.0.1:8000</code>, so the app itself never faces the internet directly.</div></div>
+        <div class="tool"><div class="sig">Single Entra app</div><div class="td"><code>api://&lt;id&gt;</code> + scope <code>pg.read</code>, manifest token v2, a client secret, and redirect <code>/auth/callback</code> — one app registration the proxy logs users in through.</div></div>
+        <div class="tool"><div class="sig">Switch to OAuth mode</div><div class="td">Set the four <code>PGMCP_OAUTH_*</code> proxy vars and a base URL, then restart. <code>build_auth()</code> returns an <code>AzureProvider</code> and the endpoint requires a token.</div></div>
+        <div class="tool"><div class="sig">Postgres stays local</div><div class="td">The server still reaches Postgres over <code>127.0.0.1</code>, so the database never needs to open <code>5432</code> to anything beyond the VM.</div></div>
       </div>
 
-      <div class="callout warn"><b>The blocker.</b> Azure Container Apps requires the
-        <code>Microsoft.App</code> resource provider to be registered on the subscription — a
-        <b>subscription-level action</b>. The operator is <b>Contributor on resource group
-        <code>Several_Millers_Default</code> only</b>, so it could not be registered and the environment
-        could not be created. Phases B–D never deployed.</div>
-
-      <div class="callout" style="margin-top:14px"><b>→ Superseded by spec 005.</b> The same Phase-A
-        <code>AzureProvider</code> code was instead run <b>directly on the VM</b>, fronted by
-        <b>Caddy</b> for automatic HTTPS — no provider registration, no VNet, Postgres stays on localhost.
-        See the spec-005 guide.</div>
+      <div class="callout"><b>What carries over unchanged.</b> The synthetic data, the column-scoped
+        <code>mcp_readonly</code> role, and the server binary are exactly the same. Going public adds a
+        TLS front end and turns on authentication — it does not touch the data layer or the application
+        code.</div>
 
       <details class="blueprint">
-        <summary><span class="caret">▸</span> Static blueprint — the blocked Container Apps topology (Mermaid, MCP-validated)</summary>
+        <summary><span class="caret">▸</span> Static blueprint — the public topology (Mermaid, MCP-validated)</summary>
         <div class="mwrap">
           <pre class="mermaid">
 graph LR
-  CG["ChatGPT Business<br/>OAuth (discovered)"]
-  subgraph ACA["Azure Container Apps - BLOCKED"]
-    APP["pg-mcp-server<br/>AzureProvider - :8000"]
+  CG["ChatGPT<br/>OAuth (discovered)"]
+  subgraph VM["Azure VM"]
+    PROXY["HTTPS reverse proxy<br/>:443 - auto-TLS"]
+    SRV["pg-mcp-server<br/>AzureProvider - 127.0.0.1:8000"]
+    PG[("PostgreSQL<br/>mg_dwh - localhost")]
   end
   ENTRA["Microsoft Entra ID<br/>one app registration"]
-  KV["Key Vault<br/>secrets via managed identity"]
-  subgraph VM["Postgres VM"]
-    PG[("PostgreSQL :5432")]
-  end
-  BLOCK["BLOCKER: Microsoft.App provider<br/>needs subscription-level registration"]
-  CG -- "DCR/CIMD + PKCE" --> APP
-  APP -- "VNet - NSG 5432" --> PG
-  APP -- "proxy login" --> ENTRA
-  APP -. "managed identity" .-> KV
-  BLOCK -. blocks .-> APP
+  CG -- "HTTPS :443" --> PROXY
+  PROXY -- "reverse_proxy" --> SRV
+  SRV -- "proxy login - scope pg.read" --> ENTRA
+  SRV -- "mcp_readonly read-only" --> PG
           </pre>
         </div>
       </details>
@@ -620,9 +607,9 @@ graph LR
     <section id="build">
       <div class="eyebrow">05 · Step by step</div>
       <h2 class="sec">The build, end to end</h2>
-      <p class="lead">Every step across both specs, grouped. <b>Done</b> steps carry a teal check;
-        the <b style="color:var(--danger)">blocked</b> Container Apps steps are marked in red.
-        <b>Expand</b> any step for the command and how to verify it.</p>
+      <p class="lead">Every step to stand up the sandbox, grouped. <b>Done</b> steps carry a teal check;
+        the optional steps for going public are marked separately. Expand any step for the command and
+        how to verify it.</p>
       <div id="tasklist"></div>
     </section>
 
@@ -654,7 +641,7 @@ graph LR
           <div class="oexp">Fails: <b>cannot execute INSERT in a read-only transaction</b>. SELECT of whitelisted columns works.</div>
         </div>
         <div class="opcard">
-          <div class="ol">Flip on OAuth (004 path)</div>
+          <div class="ol">Flip on OAuth</div>
           <code class="ocmd"><span class="pr"># </span>set the 4 PGMCP_OAUTH_* proxy vars → restart</code>
           <div class="oexp">Log changes to <b>OAuth enabled (Azure proxy, base_url=…)</b>; <code>curl -i .../mcp/</code> with no token → <b>401</b>.</div>
         </div>
@@ -664,23 +651,21 @@ graph LR
           <div class="oexp">stderr prints <b>Generated rows: …</b> + sample style codes; the <code>.sql</code> is git-ignored.</div>
         </div>
       </div>
-      <div class="callout" style="margin-top:18px"><b>Reminder:</b> 003 is an interim stand-in — synthetic
-        data only, never internet-facing. To test <i>with</i> auth, set the <code>PGMCP_OAUTH_*</code> vars
-        against your own tenant (the 004 path), or move to the spec-005 VM + Caddy deploy for the real
-        ChatGPT connector.</div>
+      <div class="callout" style="margin-top:18px"><b>Note:</b> the sandbox is synthetic-data-only and
+        never internet-facing. To test <i>with</i> authentication, set the <code>PGMCP_OAUTH_*</code> vars
+        against your own tenant and restart — the server starts requiring a token.</div>
     </section>
 
     <footer>
       <div class="eyebrow">Reference</div>
       <p style="color:var(--ink-dim);font-size:14.5px;max-width:66ch;margin-bottom:20px">This guide covers the
-        interim test deploy (spec 003) and the OAuth-proxy code + blocked cloud plan (spec 004). The build
-        steps in section 05 are the runbook; section 06 is day-two operation. The blocked Container Apps
-        path was superseded by spec 005 (server on the VM + Caddy).</p>
+        Several Millers test sandbox: the synthetic-data pipeline, the private SSH-tunnel topology, and the
+        server's authentication modes. Section 05 is the build runbook; section 06 is day-two operation.</p>
       <div class="ftnote">
-        SOURCE · specs/003-several-millers-test-deploy.md · specs/004-chatgpt-business-oauth-connector.md<br>
-        BUILT ON · spec 001 (the server: policy.yaml, main.py, auth.py, config.py)<br>
-        SUPERSEDED BY · spec 005 (ChatGPT Business connector — VM + Caddy)<br>
-        Interactive implementation guide — pg-mcp-server.
+        ENVIRONMENT · Several Millers test sandbox<br>
+        VM · vm-pgmcp-test · RG Several_Millers_Default<br>
+        DATA · synthetic only · never internet-facing<br>
+        Interactive guide — pg-mcp-server.
       </div>
     </footer>
   </main>
@@ -706,12 +691,12 @@ const STEPS = [
     plain:'Copy the SQL to the VM and load it into mg_dwh.centric_8_plm. All five whitelisted tables are created and populated. Stop on the first error so a bad fixture fails loudly.',
     wire:'scp scripts/synthetic_load.sql <user>@<vm>:/tmp/\n\n# on the VM:\nsudo -u postgres psql -d mg_dwh -v ON_ERROR_STOP=1 -f /tmp/synthetic_load.sql\n→ SELECT count(*) FROM centric_8_plm.styles;  → 200'},
   {t:'Generate the column-scoped role SQL',from:'role',to:'db',verb:'SCRIPT',
-    path:'scripts/generate_role_sql.py  (reused from spec 001)',
+    path:'scripts/generate_role_sql.py',
     plain:'Emit the least-privilege role straight from policy.yaml: column-level GRANT SELECT per whitelisted table — never a table-level grant — plus default_transaction_read_only. Replace CHANGE_ME with a strong password before applying.',
     wire:'uv run python scripts/generate_role_sql.py > sql/role_setup.sql\n# replace CHANGE_ME, scp over, then:\nsudo -u postgres psql -d mg_dwh -v ON_ERROR_STOP=1 -f /tmp/role_setup.sql'},
   {t:'mcp_readonly — the DB backstop is live',from:'db',to:'db',verb:'RESULT',
     path:'role mcp_readonly on mg_dwh',
-    plain:'The server connects as mcp_readonly. It can SELECT whitelisted columns and nothing else; any write fails at the database regardless of what the application does. Synthetic data does not relax this — the spec-001 column-level role is in force here too.',
+    plain:'The server connects as mcp_readonly. It can SELECT whitelisted columns and nothing else; any write fails at the database regardless of what the application does. The synthetic data does not relax this — the column-level role is in force here too.',
     wire:'SELECT code FROM centric_8_plm.styles LIMIT 1;   → ok\nINSERT INTO centric_8_plm.styles(id) VALUES (\'x\');\n→ ERROR: cannot execute INSERT in a read-only transaction'}
 ];
 
@@ -722,7 +707,7 @@ const ARCH = {
     note:'Everything that touches real data runs here, read-only, and stays here. The endpoint is reached only by forwarding port 8000 over SSH — there is no public route to it.'},
   srv:{c:'var(--srv)',ic:'PX',t:'pg-mcp-server',sub:'no-auth · 127.0.0.1:8000',
     rows:[['Bind','127.0.0.1:8000'],['Auth','none (build_auth → None)'],['Transport','Streamable HTTP /mcp/'],['Run','uv run python main.py']],
-    note:'The same server code as 004/005, started with all PGMCP_OAUTH_* blank so build_auth() returns None. Because it is unauthenticated it must never bind a public interface — only localhost.'},
+    note:'The same server binary used in every deployment, started with all PGMCP_OAUTH_* blank so build_auth() returns None. Because it is unauthenticated it must never bind a public interface — only localhost.'},
   pg:{c:'var(--pg)',ic:'DB',t:'PostgreSQL',sub:'mg_dwh · centric_8_plm',
     rows:[['Reachable on','127.0.0.1:5432 (VM only)'],['Data','synthetic · 200 styles'],['Role','mcp_readonly'],['Grants','column-level SELECT']],
     note:'Installed on the VM (apt or a postgres:16 container). Loaded only with synthetic rows. The mcp_readonly role is the real backstop — writes fail in a read-only transaction.'},
@@ -733,11 +718,11 @@ const ARCH = {
 
 /* ── data: checklist ── */
 const GROUPS = [
-  {h:'Spec 003 · repo-side', tasks:[
+  {h:'Repo setup', tasks:[
     {s:'done',n:'A',who:'code',t:'Add the three scripts',b:'generate_synthetic_sql.py, pull_sample.py, smoke_test.py — read policy.yaml/models.py for table+column structure; generator emits whitelisted columns only; sample puller sets the connection read-only; smoke test drives every tool.',v:'ruff + mypy clean on all three scripts.'},
     {s:'done',n:'B',who:'config',t:'Git-ignore real samples + generated SQL',b:'Add pg-mcp-server/scripts/sample_data/ and pg-mcp-server/scripts/synthetic_load.sql to .gitignore.',v:'git status shows neither path as untracked after running the scripts.'},
   ]},
-  {h:'Spec 003 · operator runbook', tasks:[
+  {h:'VM setup & data load', tasks:[
     {s:'skip',n:'1',who:'laptop',t:'Pull a real sample (optional — skipped)',b:'Run where the source DB is reachable read-only; real values stay local + git-ignored. Skipped in the as-built run.',v:'sample_data/schema_types.json + sample_<table>.json exist; no write ever issued to the source.'},
     {s:'done',n:'2',who:'laptop',t:'Synthetic SQL ready',b:'generate_synthetic_sql.py → synthetic_load.sql (200 styles). Tune volume with --styles/--collections/…',v:'stderr prints "Generated rows: …"; the .sql starts CREATE SCHEMA IF NOT EXISTS centric_8_plm; and contains only whitelisted columns.'},
     {s:'done',n:'3',who:'Azure',t:'Provision the Ubuntu VM',b:'RG Several_Millers_Default → Ubuntu 24.04 LTS (vm-pgmcp-test, Standard_B2s), SSH public-key auth (azureuser), inbound SSH (22) only.',v:'VM Running with a public IP; ssh azureuser@<ip> lands a shell.'},
@@ -748,23 +733,20 @@ const GROUPS = [
     {s:'done',n:'8',who:'VM',t:'Run the server (no-auth, localhost)',b:'uv run python main.py (or nohup / a systemd unit to keep it up).',v:'log shows "running WITHOUT authentication", "database pool opened", "policy validated against DB: 5 tables, 2 templates", "Uvicorn running on http://127.0.0.1:8000".'},
     {s:'done',n:'9',who:'VM',t:'Smoke-test end to end',b:'smoke_test.py --url http://127.0.0.1:8000/mcp/. From a laptop, tunnel first with ssh -L.',v:'prints "9/9 checks passed" and exits 0.'},
   ]},
-  {h:'Spec 004 · Phase A — server code (done, locally)', tasks:[
+  {h:'Authentication code', tasks:[
     {s:'done',n:'A1',who:'code',t:'Config vars',b:'config.py: oauth_client_id/secret/tenant_id/base_url (all str|None=None), oauth_identifier_uri + oauth_jwt_signing_key (optional). Kept oauth_required_scopes (default ["pg.read"]).',v:'imports clean; mypy clean.'},
     {s:'done',n:'A2',who:'code',t:'build_auth() branch',b:'auth.py: returns AzureProvider when client_id+secret+tenant_id+base_url are set (logs "OAuth enabled (Azure proxy, base_url=…)"); else JWTVerifier / None. Return type AuthProvider | None.',v:'returns AzureProvider with proxy vars set.'},
     {s:'done',n:'A3',who:'code',t:'Tests',b:'tests/test_auth.py: proxy vars → AzureProvider; proxy precedence over token vars; token vars → JWTVerifier; none → None.',v:'4/4 pass; full suite 41 passed/1 skipped; ruff + mypy clean.'},
     {s:'done',n:'A4',who:'code',t:'Sample + docs',b:'.env.example documents both OAuth modes (proxy + token-only) with every new PGMCP_OAUTH_* var.',v:'.env.example covers all new vars.'},
     {s:'done',n:'A5',who:'code',t:'Local smoke of discovery (offline)',b:'Built FastMCP(auth=AzureProvider(...)) and enumerated the ASGI routes.',v:'/.well-known/oauth-protected-resource/mcp, …/oauth-authorization-server, /register, /authorize, /token, /auth/callback all mounted.'},
   ]},
-  {h:'Spec 004 · Phase B–D — cloud (planned · Container Apps blocked)', tasks:[
-    {s:'done',n:'B1',who:'Azure',t:'VM Postgres + synthetic data + role',b:'Done via spec 003 (200 styles; role read-only).',v:'reused from spec 003.'},
-    {s:'blocked',n:'B1b',who:'VM',t:'Open Postgres to the VNet',b:'Would set listen_addresses + pg_hba for the ACA subnet CIDR and give the VM a static private IP. Not needed once spec 005 kept Postgres on localhost.',v:'(planned) psql -h <VM_PRIVATE_IP> -U mcp_readonly works from the VM.'},
-    {s:'blocked',n:'B2',who:'Azure',t:'ACR + build image',b:'Create a Basic Container Registry; az acr build -r <ACR> -t pg-mcp-server:latest .',v:'(planned) repository shows pg-mcp-server:latest.'},
-    {s:'blocked',n:'B3',who:'Azure',t:'Delegated subnet + NSG',b:'aca-infra /27 delegated to Microsoft.App/environments; NSG inbound allow that CIDR → VM 5432.',v:'(planned) subnet shows the delegation; NSG lists the rule.'},
-    {s:'blocked',n:'B4',who:'Azure',t:'Container Apps Environment',b:'Workload-profiles env, your VNet + aca-infra, Virtual IP = External. BLOCKED: needs the Microsoft.App provider registered (subscription-level) — operator is RG Contributor only.',v:'(blocked) env could not provision.'},
-    {s:'blocked',n:'B5',who:'Azure',t:'Container App + secrets + env vars',b:'App from ACR (admin-user pull), target port 8000, system-assigned MI on; Key Vault access-policy secrets; PGMCP_OAUTH_* env. Depends on B4.',v:'(planned) revision Running; log "OAuth enabled"; curl /mcp/ → 401.'},
-    {s:'done',n:'C1',who:'Entra',t:'Register the single app + scope + redirect',b:'Expose-an-API api://<id> → scope pg.read; manifest requestedAccessTokenVersion=2; client secret; redirect https://<host>/auth/callback. (Reused as-is by spec 005.)',v:'manifest shows v2 + the pg.read scope; consent granted.'},
-    {s:'blocked',n:'D1',who:'ChatGPT',t:'Create + test the connector (on ACA host)',b:'Developer mode → Create → Server URL https://<APP_HOST>/mcp, OAuth (discovered). Blocked because there was no ACA host. Done instead on the spec-005 Caddy host.',v:'(planned) ChatGPT lists all 5 tools; queries return synthetic rows.'},
-    {s:'blocked',n:'D2',who:'ChatGPT',t:'Publish for the workspace',b:'Workspace Settings → Apps → Drafts → Publish. (Immutable after publish — recreate to change.)',v:'(planned) members see the connector.'},
+  {h:'Going public (optional)', tasks:[
+    {s:'todo',n:'P1',who:'Azure',t:'Public DNS name',b:'Give the VM public IP a stable DNS label so a certificate can be issued and ChatGPT has a fixed URL.',v:'the hostname resolves to the VM public IP.'},
+    {s:'todo',n:'P2',who:'Azure',t:'Open 80 + 443',b:'Add inbound NSG rules for HTTP 80 (certificate challenge) and HTTPS 443. The endpoint is no longer SSH-only.',v:'NSG lists the 80 + 443 allow rules.'},
+    {s:'todo',n:'P3',who:'VM',t:'HTTPS reverse proxy',b:'Run a reverse proxy that terminates TLS on 443 and forwards to 127.0.0.1:8000. The app keeps binding localhost; only the proxy faces the internet.',v:'https://<host>/ serves a valid certificate; requests reach the server.'},
+    {s:'todo',n:'P4',who:'Entra',t:'Register the single app + scope + redirect',b:'Expose-an-API api://<id> → scope pg.read; manifest requestedAccessTokenVersion=2; client secret; redirect https://<host>/auth/callback.',v:'manifest shows token v2 + the pg.read scope; consent granted.'},
+    {s:'todo',n:'P5',who:'VM',t:'Switch to OAuth mode',b:'Set the four PGMCP_OAUTH_* proxy vars + PGMCP_OAUTH_BASE_URL, then restart. build_auth() returns an AzureProvider.',v:'log shows "OAuth enabled (Azure proxy, base_url=…)"; curl -i .../mcp/ with no token → 401.'},
+    {s:'todo',n:'P6',who:'ChatGPT',t:'Connect the connector',b:'Developer mode → Create → Server URL https://<host>/mcp, Authentication = OAuth (discovered) → sign in through Entra.',v:'ChatGPT lists all 5 tools; queries return synthetic rows.'},
   ]},
 ];
 
@@ -845,11 +827,11 @@ const tgProxy=document.getElementById('tgProxy'), tgToken=document.getElementByI
 let proxyOn=false, tokenOn=false;
 const AUTHRES={
   A:{cls:'A',rt:'→ AzureProvider',log:'INFO  OAuth enabled (Azure proxy, base_url=https://…)',
-     meta:'Publishes the full OAuth surface: <b>/.well-known/oauth-protected-resource/mcp</b>, <b>…/oauth-authorization-server</b>, <b>/register</b>, <b>/authorize</b>, <b>/token</b>, <b>/auth/callback</b>, JWKS. Speaks DCR/CIMD + PKCE to ChatGPT and proxies login to one Entra app.',used:'used by spec 004 / 005'},
+     meta:'Publishes the full OAuth surface: <b>/.well-known/oauth-protected-resource/mcp</b>, <b>…/oauth-authorization-server</b>, <b>/register</b>, <b>/authorize</b>, <b>/token</b>, <b>/auth/callback</b>, JWKS. Speaks DCR/CIMD + PKCE to ChatGPT and proxies login to one Entra app.',used:'the OAuth-proxy deployment'},
   B:{cls:'B',rt:'→ JWTVerifier',log:'INFO  OAuth enabled (token validation, issuer=https://login.microsoftonline.com/…/v2.0)',
-     meta:'A pure <b>resource server</b>: validates incoming bearer JWTs against issuer / JWKS / audience and required scope. <b>No discovery or registration endpoints</b> — the client must already hold a token.',used:'the spec-002 production path'},
+     meta:'A pure <b>resource server</b>: validates incoming bearer JWTs against issuer / JWKS / audience and required scope. <b>No discovery or registration endpoints</b> — the client must already hold a token.',used:'a token-validation deployment'},
   C:{cls:'C',rt:'→ None  (no authentication)',log:'WARNING  running WITHOUT authentication (local dev only)',
-     meta:'No auth provider. Only the <b>read-only DB role</b> and the <b>whitelist</b> protect data. Must bind to <code>127.0.0.1</code> and be reached over an SSH tunnel — never public.',used:'used by spec 003'}
+     meta:'No auth provider. Only the <b>read-only DB role</b> and the <b>whitelist</b> protect data. Must bind to <code>127.0.0.1</code> and be reached over an SSH tunnel — never public.',used:'this sandbox · local testing'}
 };
 function renderAuth(){
   const mode = proxyOn ? 'A' : (tokenOn ? 'B' : 'C');

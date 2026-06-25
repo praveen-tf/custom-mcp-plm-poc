@@ -3,8 +3,8 @@
 <head>
 <meta charset="UTF-8" />
 <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-<title>Several Millers · Live ChatGPT Business Connector — VM + Caddy + AzureProvider (Spec 005)</title>
-<meta name="description" content="As-built runbook for Several Millers' live ChatGPT Business connector: pg-mcp-server on the Azure VM, Caddy for auto-HTTPS, FastMCP AzureProvider OAuth proxy, single Entra app." />
+<title>Several Millers · Live ChatGPT Business → PLM Postgres Connector</title>
+<meta name="description" content="The live connector that lets a ChatGPT Business workspace query the Several Millers PLM Postgres database: pg-mcp-server on an Azure VM, Caddy for automatic HTTPS, a FastMCP AzureProvider OAuth proxy, and a single Microsoft Entra app." />
 <link rel="preconnect" href="https://fonts.googleapis.com" />
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
 <link href="https://fonts.googleapis.com/css2?family=Bricolage+Grotesque:opsz,wght@12..96,500;12..96,700;12..96,800&family=Hanken+Grotesk:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500;700&display=swap" rel="stylesheet" />
@@ -322,7 +322,7 @@ footer{border-top:1px solid var(--line);margin-top:90px;padding-top:34px;color:v
       <div class="dot"></div>
       <div>
         <b>Several Millers</b>
-        <span>live connector · spec 005</span>
+        <span>live connector</span>
       </div>
     </div>
     <a class="navlink active" href="#overview"><span class="num">00</span>Overview</a>
@@ -350,12 +350,13 @@ footer{border-top:1px solid var(--line);margin-top:90px;padding-top:34px;color:v
         <span class="pill">FastMCP AzureProvider</span>
         <span class="pill">Microsoft Entra ID</span>
       </div>
-      <h1>Several Millers' live connector:<br><span class="grad">ChatGPT Business</span><br>→ VM + Caddy → Postgres.</h1>
+      <h1>Ask the PLM database in plain language:<br><span class="grad">ChatGPT Business</span><br>→ VM + Caddy → Postgres.</h1>
       <p class="sub">
-        A self-hosted MCP server runs <b>on the Azure VM</b>, fronted by <code>Caddy</code> for
-        automatic HTTPS. ChatGPT discovers its OAuth metadata, a single <b>Entra app</b> handles
-        login, and every query reaches Postgres as the read-only <code>mcp_readonly</code> role.
-        Click through the flow below — it explains itself.
+        This is the live connector that lets a ChatGPT Business workspace query the Several Millers
+        PLM Postgres database in plain language. The MCP server runs on an Azure VM behind
+        <code>Caddy</code>, which provides automatic HTTPS. ChatGPT signs its users in through
+        a single Microsoft <b>Entra app</b>, and every query runs against Postgres as the read-only
+        <code>mcp_readonly</code> role. The sections below walk the whole path, from login to result.
       </p>
 
       <div class="factgrid">
@@ -373,31 +374,31 @@ footer{border-top:1px solid var(--line);margin-top:90px;padding-top:34px;color:v
     <!-- ───────── WHY THIS SHAPE ───────── -->
     <section id="why">
       <div class="eyebrow">The decision</div>
-      <h2 class="sec">Why a VM &amp; Caddy — not Container Apps</h2>
-      <p class="lead">Spec 004 planned to run the server on <b>Azure Container Apps</b>. That path was
-        <b>blocked</b>: registering the <code>Microsoft.App</code> resource provider is a
-        subscription-level action, and the operator is only <b>Contributor on the resource group</b>.
-        Spec 005 routes around it — the VM already hosts Postgres and the server, so nothing
-        subscription-level is required.</p>
+      <h2 class="sec">Why a VM &amp; Caddy, not Container Apps</h2>
+      <p class="lead">The connector runs on the Azure VM rather than Azure Container Apps. The public-HTTPS
+        Container Apps route requires registering the <code>Microsoft.App</code> resource provider, which is
+        a subscription-level action this account does not have — it holds only <b>Contributor on the resource
+        group</b>. The VM already runs Postgres and the server, and Caddy handles HTTPS, so the connector
+        needs no subscription-level access and no extra infrastructure.</p>
       <div class="grid2">
         <div class="card">
-          <div class="eyebrow" style="color:var(--danger)">Blocked path · spec 004</div>
+          <div class="eyebrow" style="color:var(--danger)">Not used · Container Apps</div>
           <h3 style="font-family:var(--disp);font-size:18px;margin-bottom:10px">Container Apps</h3>
           <ul style="list-style:none;display:flex;flex-direction:column;gap:9px;font-size:13.5px;color:var(--ink-dim)">
             <li>✗ Needs <code style="color:var(--danger)">Microsoft.App</code> provider registered (subscription)</li>
             <li>✗ Postgres must open to the VNet (<code>pg_hba</code>, subnet NSG, static IP)</li>
             <li>✗ ACR build + Key Vault access policy + managed identity</li>
-            <li>✗ Outside the operator's RG-Contributor access</li>
+            <li>✗ Outside this account's RG-Contributor access</li>
           </ul>
         </div>
         <div class="card" style="border-color:rgba(55,211,154,.4)">
-          <div class="eyebrow" style="color:var(--ok)">As-built · spec 005</div>
+          <div class="eyebrow" style="color:var(--ok)">In use · VM + Caddy</div>
           <h3 style="font-family:var(--disp);font-size:18px;margin-bottom:10px">Server on the VM + Caddy</h3>
           <ul style="list-style:none;display:flex;flex-direction:column;gap:9px;font-size:13.5px;color:var(--ink-dim)">
             <li>✓ Caddy auto-issues a Let's Encrypt cert for the free DNS name</li>
             <li>✓ Server binds <code>127.0.0.1:8000</code> under systemd — only Caddy is public</li>
             <li>✓ Postgres stays localhost — no VNet, no <code>pg_hba</code>, no public 5432</li>
-            <li>✓ Built entirely with RG-Contributor + Cloud App Admin</li>
+            <li>✓ Runs entirely with RG-Contributor + Cloud App Admin</li>
           </ul>
         </div>
       </div>
@@ -408,7 +409,7 @@ footer{border-top:1px solid var(--line);margin-top:90px;padding-top:34px;color:v
       <div class="eyebrow">01 · Topology</div>
       <h2 class="sec">The moving parts</h2>
       <p class="lead">Five components, one request path. <b>Click any node</b> to inspect its
-        as-built configuration. Everything inside the dashed box lives on a single Azure VM.</p>
+        configuration. Everything inside the dashed box runs on a single Azure VM.</p>
 
       <div class="arch">
         <div class="archmap">
@@ -664,11 +665,11 @@ sequenceDiagram
     <!-- ───────── FOOTER ───────── -->
     <footer>
       <div class="eyebrow">Reference</div>
-      <p style="color:var(--ink-dim);font-size:14.5px;max-width:66ch;margin-bottom:20px">This guide mirrors the running implementation — the server code, the Caddy + systemd setup, the single Entra app, and the read-only Postgres role. The steps in section 05 are the build runbook; the commands above are day-two operations.</p>
+      <p style="color:var(--ink-dim);font-size:14.5px;max-width:66ch;margin-bottom:20px">This guide describes the running connector: the server code, the Caddy and systemd setup, the single Entra app, and the read-only Postgres role. Section 05 is the build runbook; the commands above are day-two operations.</p>
       <div class="ftnote">
-        SOURCE · specs/005-chatgpt-business-connector-vm-caddy.md<br>
-        BUILT ON · spec 003 (VM Postgres + synthetic data) · spec 004 Phase A (AzureProvider code)<br>
-        Interactive implementation guide — pg-mcp-server.
+        HOST · smpgmcp.westus.cloudapp.azure.com<br>
+        STACK · Azure VM · Caddy · FastMCP AzureProvider · Microsoft Entra ID · PostgreSQL<br>
+        Interactive guide — Several Millers PLM Postgres connector.
       </div>
     </footer>
   </main>
@@ -764,8 +765,8 @@ const TOOLS = [
 ];
 
 const TASKS = [
-  {n:1,who:'code',t:'Server OAuth code (Phase A)',b:'From spec 004: auth.py build_auth() returns an AzureProvider when the four proxy vars are set; new config vars added; backward-compatible with token-only and no-auth modes.',v:'pytest / ruff / mypy clean.'},
-  {n:2,who:'DB',t:'VM Postgres + synthetic data + role',b:'From spec 003: mg_dwh.centric_8_plm created, 200 synthetic styles loaded, column-scoped mcp_readonly role applied (read-only).',v:'SELECT works as mcp_readonly; INSERT fails with "cannot execute INSERT in a read-only transaction".'},
+  {n:1,who:'code',t:'Server OAuth code',b:'auth.py build_auth() returns an AzureProvider when the four proxy vars are set; backward-compatible with token-only and no-auth modes.',v:'pytest / ruff / mypy clean.'},
+  {n:2,who:'DB',t:'VM Postgres + synthetic data + role',b:'Postgres on the VM holds mg_dwh.centric_8_plm with 200 synthetic styles and a column-scoped mcp_readonly role (read-only).',v:'SELECT works as mcp_readonly; INSERT fails with "cannot execute INSERT in a read-only transaction".'},
   {n:3,who:'Azure',t:'Public DNS name',b:'Gave the VM\'s Public IP a DNS name label "smpgmcp" → smpgmcp.westus.cloudapp.azure.com (free).',v:'The FQDN resolves to the VM\'s public IP.'},
   {n:4,who:'Azure',t:'Open ports 80 + 443',b:'NSG vm-pgmcp-test-nsg inbound: allow TCP 80 (ACME HTTP-01) and 443 (HTTPS) from Any. SSH 22 stays; 5432 / 8000 never exposed.',v:'NSG lists the 80 + 443 allow rules.'},
   {n:5,who:'VM',t:'Install & configure Caddy',b:'Installed Caddy; /etc/caddy/Caddyfile set to <host> { reverse_proxy 127.0.0.1:8000 }; reloaded → Let\'s Encrypt cert obtained automatically.',v:'Caddy serves valid HTTPS for the hostname.'},

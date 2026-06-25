@@ -3,8 +3,8 @@
 <head>
 <meta charset="UTF-8" />
 <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-<title>Thoughtfully · Building the Postgres MCP Server & Azure Deploy — Runbook (Specs 001 + 002)</title>
-<meta name="description" content="How Thoughtfully built the read-only Postgres MCP server (spec 001) and shipped it to Azure Container Apps with two-app Entra ID OAuth for ChatGPT Enterprise (spec 002)." />
+<title>The Postgres MCP Server & its Azure Deployment for ChatGPT</title>
+<meta name="description" content="A read-only Postgres MCP server that lets ChatGPT query a PLM database safely, and how it runs on Azure Container Apps behind Microsoft Entra ID OAuth." />
 <link rel="preconnect" href="https://fonts.googleapis.com" />
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
 <link href="https://fonts.googleapis.com/css2?family=Bricolage+Grotesque:opsz,wght@12..96,500;12..96,700;12..96,800&family=Hanken+Grotesk:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500;700&display=swap" rel="stylesheet" />
@@ -314,7 +314,7 @@ footer{border-top:1px solid var(--line);margin-top:90px;padding-top:34px;color:v
   <nav class="side" id="side">
     <div class="brand">
       <div class="dot"></div>
-      <div><b>Thoughtfully</b><span>pg-mcp-server · 001+002</span></div>
+      <div><b>Thoughtfully</b><span>pg-mcp-server · build + deploy</span></div>
     </div>
     <a class="navlink active" href="#overview"><span class="num">00</span>Overview</a>
     <a class="navlink" href="#architecture"><span class="num">01</span>3-layer architecture</a>
@@ -326,8 +326,8 @@ footer{border-top:1px solid var(--line);margin-top:90px;padding-top:34px;color:v
     <a class="navlink" href="#operate"><span class="num">07</span>Operate &amp; verify</a>
     <div class="meta">
       GUIDE · <b>Thoughtfully side</b><br>
-      SPECS · 001 + 002<br>
       DEPLOY · Azure Container Apps<br>
+      AUTH · Entra ID OAuth<br>
       FASTMCP · v3.x
     </div>
   </nav>
@@ -343,10 +343,10 @@ footer{border-top:1px solid var(--line);margin-top:90px;padding-top:34px;color:v
       </div>
       <h1>Thoughtfully's read-only<br><span class="grad">Postgres MCP server</span>,<br>built and shipped to Azure.</h1>
       <p class="sub">
-        Two chapters. <b>Spec 001</b> builds the server: a column-whitelisted, read-only Postgres MCP
-        on <code>FastMCP</code> that hides sensitive fields from the model entirely. <b>Spec 002</b> is
-        the production runbook — <code>Azure Container Apps</code>, VNet-integrated to the Postgres VM,
-        with two-app <b>Entra ID</b> OAuth and a ChatGPT Enterprise connector.
+        ChatGPT can query a PLM database without ever seeing the sensitive fields. A column-whitelisted,
+        read-only Postgres MCP server on <code>FastMCP</code> decides what the model is allowed to read,
+        then runs on <code>Azure Container Apps</code>, VNet-integrated to the Postgres VM and fronted by
+        two-app <b>Entra ID</b> OAuth so only authenticated ChatGPT users reach it.
       </p>
 
       <div class="factgrid">
@@ -361,35 +361,33 @@ footer{border-top:1px solid var(--line);margin-top:90px;padding-top:34px;color:v
       <div class="scrollcue"><span class="ln"></span>SCROLL — BUILD, THEN DEPLOY</div>
     </section>
 
-    <!-- HONEST NOTE -->
+    <!-- HOW IT FITS TOGETHER -->
     <section id="lineage">
-      <div class="eyebrow">Where this sits</div>
-      <h2 class="sec">The original production plan</h2>
-      <p class="lead">Spec 002 is the <b>first</b> production deploy design: a <b>two-app</b> Entra OAuth
-        flow with manually-pasted connector fields, targeting <b>ChatGPT Enterprise</b>. Its
-        <b>auth approach was later superseded</b> by specs 004/005 — a single Entra app behind a FastMCP
-        <code>AzureProvider</code> proxy that ChatGPT <b>Business</b> discovers automatically. What
-        carried forward unchanged is the <b>topology</b>: Container Apps + VNet + Key Vault, and the
-        server itself (spec 001).</p>
+      <div class="eyebrow">How it fits together</div>
+      <h2 class="sec">Two halves, one connector</h2>
+      <p class="lead">There are two halves to this. The <b>server</b> is the safety boundary: it decides which
+        tables and columns the model can read and rejects everything else before a query reaches Postgres.
+        The <b>Azure deployment</b> puts that server on the public internet for ChatGPT while keeping the
+        database private, and gates access behind Microsoft Entra ID OAuth.</p>
       <div class="grid2">
         <div class="card">
-          <div class="eyebrow" style="color:var(--entra)">This guide · 002</div>
-          <h3 style="font-family:var(--disp);font-size:18px;margin-bottom:10px">Two apps · Enterprise · manual</h3>
+          <div class="eyebrow" style="color:var(--srv)">The server</div>
+          <h3 style="font-family:var(--disp);font-size:18px;margin-bottom:10px">Read-only, column-whitelisted</h3>
           <ul style="list-style:none;display:flex;flex-direction:column;gap:9px;font-size:13.5px;color:var(--ink-dim)">
-            <li>• App A (API) + App B (client) registrations</li>
-            <li>• You paste authorize/token URLs, client id/secret, scopes</li>
-            <li>• Server only <b>validates</b> tokens (<code>JWTVerifier</code>)</li>
-            <li>• ChatGPT <b>Enterprise</b> custom connector</li>
+            <li>• A column whitelist defines what the model can read</li>
+            <li>• Sensitive fields never appear in the schema it sees</li>
+            <li>• Every query is parsed and checked before the database</li>
+            <li>• Five read-only tools over Streamable HTTP at <code>/mcp/</code></li>
           </ul>
         </div>
         <div class="card">
-          <div class="eyebrow" style="color:var(--ok)">Superseded by · 004/005</div>
-          <h3 style="font-family:var(--disp);font-size:18px;margin-bottom:10px">One app · Business · discovered</h3>
+          <div class="eyebrow" style="color:var(--entra)">The Azure deployment</div>
+          <h3 style="font-family:var(--disp);font-size:18px;margin-bottom:10px">Public to ChatGPT, private to the DB</h3>
           <ul style="list-style:none;display:flex;flex-direction:column;gap:9px;font-size:13.5px;color:var(--ink-dim)">
-            <li>• One Entra app behind a FastMCP <code>AzureProvider</code></li>
-            <li>• ChatGPT <b>discovers</b> OAuth (DCR/CIMD + PKCE)</li>
-            <li>• Server <b>proxies</b> login &amp; mints its own JWT</li>
-            <li>• ChatGPT <b>Business</b> connector (see the 005 guide)</li>
+            <li>• Runs on Azure Container Apps with public HTTPS</li>
+            <li>• VNet-integrated; reaches the Postgres VM privately</li>
+            <li>• Two-app Entra ID OAuth gates every request</li>
+            <li>• Secrets held in Key Vault via a managed identity</li>
           </ul>
         </div>
       </div>
@@ -397,10 +395,10 @@ footer{border-top:1px solid var(--line);margin-top:90px;padding-top:34px;color:v
 
     <!-- 01 · ARCHITECTURE -->
     <section id="architecture">
-      <div class="eyebrow">01 · Spec 001 · the build</div>
+      <div class="eyebrow">01 · The build</div>
       <h2 class="sec">A 3-layer server</h2>
-      <p class="lead">Readability first, max three layers deep. <b>Tools are thin Layer-1 boundaries</b>
-        — every whitelist decision lives in Layer 2. <b>Click any file</b> to see its job.</p>
+      <p class="lead">The code is at most three layers deep. Tools are thin Layer-1 boundaries; every
+        whitelist decision lives in Layer 2. Click any file to see its job.</p>
 
       <div class="arch">
         <div class="archmap" id="archmap1">
@@ -437,14 +435,14 @@ footer{border-top:1px solid var(--line);margin-top:90px;padding-top:34px;color:v
 
     <!-- 02 · QUERY PATHS -->
     <section id="query-paths">
-      <div class="eyebrow">02 · Spec 001 · functionality</div>
+      <div class="eyebrow">02 · Functionality</div>
       <h2 class="sec">Two ways to ask</h2>
       <p class="lead">The model reaches data through two whitelist-bound paths. Open-query is the
-        <b>primary</b> mode; templates are a small curated set of blessed queries.</p>
+        primary mode; templates are a small curated set of approved queries.</p>
 
       <div class="grid2" style="margin-bottom:24px">
         <div class="pathcard" style="--c:var(--srv)">
-          <div class="ph"><span class="pbadge" style="color:var(--srv);border-color:var(--srv)">D2 · primary</span></div>
+          <div class="ph"><span class="pbadge" style="color:var(--srv);border-color:var(--srv)">primary</span></div>
           <h3>Open query</h3>
           <p class="pd">The model writes its own SQL. Every statement is parsed to a Postgres AST with
             <b>pglast</b> and rejected unless it's a single read-only <code>SELECT</code> over whitelisted
@@ -454,7 +452,7 @@ footer{border-top:1px solid var(--line);margin-top:90px;padding-top:34px;color:v
        WHERE collection = 'ALICE…'")  → validated → rows</pre>
         </div>
         <div class="pathcard" style="--c:var(--entra)">
-          <div class="ph"><span class="pbadge" style="color:var(--entra);border-color:var(--entra)">D3 · curated</span></div>
+          <div class="ph"><span class="pbadge" style="color:var(--entra);border-color:var(--entra)">curated</span></div>
           <h3>Parameterized templates</h3>
           <p class="pd">Blessed queries live in <code>policy.yaml</code>. The server generates
             <b>one typed MCP tool per template</b>, so the model only fills in parameters — values are
@@ -472,11 +470,11 @@ list_styles_in_collection(collection="…", limit=50)</pre>
 
     <!-- 03 · SECURITY -->
     <section id="security">
-      <div class="eyebrow">03 · Spec 001 · defense in depth</div>
+      <div class="eyebrow">03 · Defense in depth</div>
       <h2 class="sec">What happens to a query</h2>
-      <p class="lead">A tool call crosses a stack of independent gates before it touches data.
-        <b>Pick a request</b> — the gate that stops it lights up red. The whitelist and AST validator are
-        convenience layers; the <b>read-only, column-scoped database role is the real backstop</b>.</p>
+      <p class="lead">A tool call crosses several independent gates before it touches data. Pick a request
+        and the gate that stops it lights up red. The whitelist and AST validator are convenience layers;
+        the <b>read-only, column-scoped database role is the real backstop</b>.</p>
 
       <div class="sec-wrap">
         <div class="samples" id="samples">
@@ -502,9 +500,10 @@ list_styles_in_collection(collection="…", limit=50)</pre>
       </div>
 
       <h2 class="sec" style="font-size:22px;margin:42px 0 6px">Why build clean on FastMCP</h2>
-      <p class="lead" style="margin-bottom:16px">Task 14 evaluated the field. <b>None</b> offered column-level
-        whitelisting that <b>hides sensitive fields from the LLM-advertised schema</b>, nor
-        open-query-with-whitelist enforcement — so the verdict was to build clean, not fork.</p>
+      <p class="lead" style="margin-bottom:16px">The existing Postgres MCP servers were evaluated first. None
+        offered column-level whitelisting that hides sensitive fields from the schema the model sees, and
+        none enforced a whitelist on open queries, so building clean on FastMCP was simpler than retrofitting
+        one of them.</p>
       <div class="evalgrid">
         <div class="evalc"><div class="en">Google MCP Toolbox</div><div class="et">Go</div><div class="er"><b>No</b> native column whitelisting.</div></div>
         <div class="evalc"><div class="en">Azure MCP Server</div><div class="et">.NET</div><div class="er"><b>Managed-PG only</b>; no hide-from-schema.</div></div>
@@ -515,11 +514,11 @@ list_styles_in_collection(collection="…", limit=50)</pre>
 
     <!-- 04 · TOPOLOGY -->
     <section id="topology">
-      <div class="eyebrow">04 · Spec 002 · the deploy</div>
+      <div class="eyebrow">04 · The deploy</div>
       <h2 class="sec">Production on Azure</h2>
-      <p class="lead">The server runs on <b>Container Apps</b> with public HTTPS, VNet-integrated so it
-        reaches the Postgres VM <b>privately</b>. <b>Click any resource</b> to inspect it. Fixed names:
-        RG <code>pgmcp-rg</code>, env <code>pgmcp-env</code>, app <code>pg-mcp-server</code>.</p>
+      <p class="lead">The server runs on Container Apps with public HTTPS, VNet-integrated so it reaches the
+        Postgres VM privately. Click any resource to inspect it. Resource names: RG <code>pgmcp-rg</code>,
+        env <code>pgmcp-env</code>, app <code>pg-mcp-server</code>.</p>
 
       <div class="arch">
         <div class="archmap" id="archmap2">
@@ -577,10 +576,10 @@ graph LR
 
     <!-- 05 · TWO-APP OAUTH -->
     <section id="oauth">
-      <div class="eyebrow">05 · Spec 002 · the handshake</div>
+      <div class="eyebrow">05 · The handshake</div>
       <h2 class="sec">Two-app Entra OAuth</h2>
-      <p class="lead">The server never holds a client secret — it only <b>validates</b> tokens. Identity is
-        split across two app registrations.</p>
+      <p class="lead">The server never holds a client secret; it only validates tokens. Identity is split
+        across two app registrations.</p>
 
       <div class="grid2" style="margin-bottom:18px">
         <div class="pathcard" style="--c:var(--app)">
@@ -598,10 +597,10 @@ graph LR
         </div>
       </div>
 
-      <div class="callout" style="margin-bottom:22px"><b>Contrast with specs 004/005:</b> this is
-        <b>two apps + manual OAuth-field paste</b> for ChatGPT <b>Enterprise</b>. Specs 004/005 collapse it
-        to <b>one app behind an <code>AzureProvider</code> proxy</b> that ChatGPT <b>Business</b>
-        <b>discovers</b> (DCR/CIMD) — no fields to paste, and the server mints its own JWT.</div>
+      <div class="callout" style="margin-bottom:22px"><b>Why two apps:</b> splitting the API (App A) from the
+        client (App B) keeps the server free of any secret. App A defines the audience and scope and is all
+        the server validates against; App B is the only place a client secret lives, and it is what ChatGPT
+        signs in as.</div>
 
       <div class="stage">
         <div class="lanes">
@@ -665,8 +664,8 @@ sequenceDiagram
     <section id="build">
       <div class="eyebrow">06 · Step by step</div>
       <h2 class="sec">From code to live connector</h2>
-      <p class="lead">Spec 001 builds the server; spec 002 deploys it. <b>Expand</b> any step for the detail
-        and how to verify it before moving on.</p>
+      <p class="lead">First build the server, then deploy it to Azure. Expand any step for the detail and
+        how to verify it before moving on.</p>
       <div id="tasklist"></div>
     </section>
 
@@ -705,7 +704,7 @@ sequenceDiagram
         <div class="opcard">
           <div class="ol">Sensitive column stays hidden</div>
           <code class="ocmd"><span class="pr">▸ </span>list_accessible_tables() · describe_table()</code>
-          <div class="oexp">The spec-001 sensitive column is <b>absent from the advertised schema</b> and unreachable via every tool.</div>
+          <div class="oexp">A sensitive column is <b>absent from the advertised schema</b> and unreachable through every tool.</div>
         </div>
       </div>
       <div class="callout warn" style="margin-top:18px"><b>Enterprise connector is immutable enough to plan for:</b>
@@ -715,13 +714,11 @@ sequenceDiagram
 
     <footer>
       <div class="eyebrow">Reference</div>
-      <p style="color:var(--ink-dim);font-size:14.5px;max-width:68ch;margin-bottom:20px">This guide pairs the
-        server build (spec 001) with its first production deploy (spec 002). The architecture and topology
-        mirror the real code and the runbook; the auth model here (two-app, Enterprise) was later superseded
-        by the single-app AzureProvider proxy in specs 004/005 — see the 005 guide.</p>
+      <p style="color:var(--ink-dim);font-size:14.5px;max-width:68ch;margin-bottom:20px">A read-only Postgres
+        MCP server that lets ChatGPT query a PLM database safely, and how it runs on Azure Container Apps
+        behind two-app Microsoft Entra ID OAuth. The architecture and topology shown here mirror the running
+        code.</p>
       <div class="ftnote">
-        SOURCE · specs/001-pg-mcp-server.md · specs/002-azure-entra-deploy-runbook.md<br>
-        SUPERSEDED-BY (auth) · spec 004 / spec 005 (single-app AzureProvider, ChatGPT Business)<br>
         Interactive implementation guide — pg-mcp-server.
       </div>
     </footer>
@@ -729,7 +726,7 @@ sequenceDiagram
 </div>
 
 <script>
-/* ════════ data: layer explorer (001) ════════ */
+/* ════════ data: layer explorer ════════ */
 const LAYERS = {
   main:{c:'var(--srv)',ic:'L1',t:'main.py',sub:'Layer 1 · entry point',
     rows:[['Builds','FastMCP("pg-mcp-server")'],['Registers','5 tools'],['Lifespan','open pool → introspect → validate'],['Auth','auth = build_auth(settings)'],['Serves','app = mcp.http_app() → /mcp/']],
@@ -748,7 +745,7 @@ const LAYERS = {
     note:'Typed settings loaded from env / .env. Missing required values raise at startup.'},
   auth:{c:'var(--caddy)',ic:'L3',t:'auth.py',sub:'Layer 3 · helper',
     rows:[['build_auth()','three modes'],['Mode 1','AzureProvider (OAuth proxy)'],['Mode 2','JWTVerifier (token-only)'],['Mode 3','None (local dev)']],
-    note:'For this Enterprise deploy (002), Mode 2 — JWTVerifier — validates the v2 tokens Entra issues (iss/JWKS/aud/scope). Specs 004/005 switch to Mode 1, the AzureProvider proxy.'},
+    note:'This deployment uses JWTVerifier: the server validates the v2 tokens Entra issues against the issuer, JWKS, audience and required scope. It holds no client secret.'},
   models:{c:'var(--caddy)',ic:'L3',t:'models.py',sub:'Layer 3 · helper',
     rows:[['Models','PolicyDocument, TablePolicy'],['','QueryTemplate (typed params)']],
     note:'Pydantic v2 models that policy.yaml validates into.'},
@@ -765,11 +762,11 @@ const LAYERS = {
     rows:[['Serves','ASGI app under uvicorn'],['Port','8000 → /mcp/']],
     note:'Built server-side by az acr build (no local Docker).'},
   deploy:{c:'var(--pg)',ic:'PY',t:'deploy.py',sub:'deploy',
-    rows:[['Automates','az acr build + containerapp create'],['Target','Azure Container Apps (D4)']],
+    rows:[['Automates','az acr build + containerapp create'],['Target','Azure Container Apps']],
     note:'A CLI alternative to the Portal path for repeatable deploys.'}
 };
 
-/* ════════ data: topology explorer (002) ════════ */
+/* ════════ data: topology explorer ════════ */
 const TOPO = {
   cg:{c:'var(--cg)',ic:'CG',t:'ChatGPT Enterprise',sub:'custom connector',
     rows:[['Tier','Enterprise'],['Connector URL','https://<APP_HOST>/mcp/'],['Auth','OAuth (manual fields)'],['Logs in as','Entra App B']],
@@ -860,7 +857,7 @@ const STEPS = [
 
 /* ════════ data: tasks (grouped) ════════ */
 const TASKGROUPS = [
-  {group:'Build the server', tag:'spec 001', items:[
+  {group:'Build the server', tag:'The server', items:[
     {n:1,who:'code',t:'Scaffolding & deps',b:'uv add fastmcp "psycopg[binary,pool]" pglast pydantic pydantic-settings pyyaml uvicorn; create the module files per the layer table.',v:'project imports clean.'},
     {n:2,who:'config',t:'Config',b:'Settings(BaseSettings) — DB conninfo, policy_path, OAuth settings, host/port, statement_timeout_ms, max_rows; get_settings() with lru_cache.',v:'invalid/missing env raises at startup.'},
     {n:3,who:'models',t:'Data models',b:'Pydantic v2 PolicyDocument / TablePolicy / QueryTemplate (typed params).',v:'models validate the policy YAML.'},
@@ -876,7 +873,7 @@ const TASKGROUPS = [
     {n:13,who:'deploy',t:'Containerize & deploy skeleton',b:'Dockerfile (ASGI under uvicorn); deploy.py skeleton for Azure Container Apps (VNet env, Key Vault secrets, NSG 5432).',v:'image builds; deploy skeleton runs.'},
     {n:14,who:'eval',t:'Build-vs-adopt evaluation',b:'Evaluated Google MCP Toolbox, Azure MCP Server, crystaldba/postgres-mcp, pgEdge against the 7 requirements.',v:'verdict: build clean on FastMCP — none offers column-level whitelisting hidden from the LLM schema.'}
   ]},
-  {group:'Deploy to Azure + Entra OAuth', tag:'spec 002', items:[
+  {group:'Deploy to Azure + Entra OAuth', tag:'Azure + OAuth', items:[
     {n:1,who:'VM',t:'Create the read-only DB role',b:'generate_role_sql.py > sql/role_setup.sql; set the role password; psql -f on the VM. Re-run whenever policy.yaml changes.',v:'\\dp shows column-level SELECT only; \\du shows mcp_readonly NOSUPERUSER; writes fail.'},
     {n:2,who:'ACR',t:'Container Registry + build',b:'Create a Basic registry in RG pgmcp-rg; az acr build -r <ACR> -t pg-mcp-server:latest .',v:'repository shows pg-mcp-server:latest.'},
     {n:3,who:'net',t:'Delegated subnet + NSG',b:'aca-infra /27 (e.g. 10.0.8.0/27) delegated to Microsoft.App/environments; VM-subnet NSG inbound allow 5432 from that CIDR.',v:'subnet shows the delegation; NSG lists the rule.'},
